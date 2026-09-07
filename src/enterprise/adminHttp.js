@@ -1,132 +1,754 @@
 /**
- * Lightweight admin HTTP — health, metrics, audit (token-protected)
- * Bind localhost by default.
+ * X-MD Admin HTTP + simple WhatsApp pairing portal.
  */
 
 import http from "http";
-import { getMetricsSnapshot, metricsPrometheus } from "./metrics.js";
+
+import {
+  getMetricsSnapshot,
+  metricsPrometheus,
+} from "./metrics.js";
+
 import { queryAudit } from "./audit.js";
 import { getFlags } from "./flags.js";
 import { getPolicies } from "./policy.js";
 import { queueStats } from "./queue.js";
 import { getMode } from "../utils/access.js";
-import { getLogGroupJid, isSetupDone } from "../utils/logGroup.js";
+
+import {
+  getLogGroupJid,
+  isSetupDone,
+} from "../utils/logGroup.js";
+
 import { BOT_INFO } from "../config/constants.js";
 import { checkFfmpeg } from "../onboarding/setup.js";
 import logger from "../utils/logger.js";
+
+import {
+  getPairingInfo,
+  requestPortalPairing,
+} from "../socket/connection.js";
 
 let server = null;
 
 function auth(req, token) {
   if (!token) return false;
-  const h = req.headers.authorization || "";
-  if (h === `Bearer ${token}`) return true;
-  const url = new URL(req.url, "http://localhost");
-  return url.searchParams.get("token") === token;
+
+  const header =
+    req.headers.authorization || "";
+
+  if (header === `Bearer ${token}`) {
+    return true;
+  }
+
+  const url = new URL(
+    req.url || "/",
+    "http://localhost"
+  );
+
+  return (
+    url.searchParams.get("token") ===
+    token
+  );
 }
 
 function json(res, code, body) {
   res.writeHead(code, {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
+    "Content-Type":
+      "application/json; charset=utf-8",
+    "Cache-Control":
+      "no-store",
   });
-  res.end(JSON.stringify(body, null, 2));
+
+  res.end(
+    JSON.stringify(
+      body,
+      null,
+      2
+    )
+  );
 }
 
+function html(res, body) {
+  res.writeHead(200, {
+    "Content-Type":
+      "text/html; charset=utf-8",
+    "Cache-Control":
+      "no-store",
+  });
+
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise(
+    (resolve, reject) => {
+      let body = "";
+
+      req.on(
+        "data",
+        (chunk) => {
+          body += chunk;
+        }
+      );
+
+      req.on(
+        "end",
+        () => {
+          try {
+            resolve(
+              body
+                ? JSON.parse(body)
+                : {}
+            );
+          } catch {
+            resolve({});
+          }
+        }
+      );
+
+      req.on(
+        "error",
+        reject
+      );
+    }
+  );
+}
+
+const portalHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1.0">
+
+<title>X-MD WhatsApp Pairing</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: #fff;
+  padding: 20px;
+}
+
+.card {
+  width: 100%;
+  max-width: 430px;
+  background: #1e293b;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+}
+
+.logo {
+  text-align: center;
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+h1 {
+  text-align: center;
+  margin: 0;
+  font-size: 25px;
+}
+
+.sub {
+  text-align: center;
+  color: #94a3b8;
+  margin: 10px 0 25px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+input {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #0f172a;
+  color: white;
+  font-size: 16px;
+  outline: none;
+}
+
+button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #22c55e;
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.result {
+  display: none;
+  margin-top: 22px;
+  text-align: center;
+  padding: 20px;
+  border-radius: 14px;
+  background: #0f172a;
+}
+
+.code {
+  font-size: 30px;
+  font-weight: bold;
+  letter-spacing: 5px;
+  margin: 15px 0;
+}
+
+.status {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #334155;
+  color: #cbd5e1;
+}
+
+.small {
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.success {
+  color: #86efac;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+  <div class="logo">🤖</div>
+
+  <h1>X-MD WhatsApp</h1>
+
+  <div class="sub">
+    Link WhatsApp with a pairing code
+  </div>
+
+  <label>
+    WhatsApp Number
+  </label>
+
+  <input
+    id="number"
+    type="tel"
+    placeholder="923001234567"
+    autocomplete="off"
+  >
+
+  <button
+    id="pairBtn"
+    onclick="requestPairing()"
+  >
+    Get Pairing Code
+  </button>
+
+  <div
+    id="result"
+    class="result"
+  >
+
+    <div class="small">
+      Your pairing code:
+    </div>
+
+    <div
+      id="code"
+      class="code"
+    >
+      ----
+    </div>
+
+    <div class="small">
+      WhatsApp → Linked devices →
+      Link with phone number
+    </div>
+
+    <div
+      id="status"
+      class="status"
+    >
+      Waiting...
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+async function requestPairing() {
+
+  const number =
+    document
+      .getElementById("number")
+      .value
+      .replace(/\\D/g, "");
+
+  const button =
+    document
+      .getElementById("pairBtn");
+
+  const result =
+    document
+      .getElementById("result");
+
+  const code =
+    document
+      .getElementById("code");
+
+  const status =
+    document
+      .getElementById("status");
+
+  if (!number) {
+    alert(
+      "Enter WhatsApp number with country code."
+    );
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent =
+    "Generating code...";
+
+  result.style.display =
+    "block";
+
+  status.textContent =
+    "Connecting to WhatsApp...";
+
+  status.className =
+    "status";
+
+  try {
+
+    const response =
+      await fetch(
+        "/api/pair",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+          body: JSON.stringify({
+            number
+          })
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+        "Pairing failed"
+      );
+    }
+
+    code.textContent =
+      data.code || "----";
+
+    status.textContent =
+      "Enter this code in WhatsApp.";
+
+    status.className =
+      "status success";
+
+  } catch (error) {
+
+    code.textContent =
+      "----";
+
+    status.textContent =
+      error.message;
+
+    status.className =
+      "status error";
+
+  } finally {
+
+    button.disabled = false;
+    button.textContent =
+      "Get Pairing Code";
+  }
+}
+</script>
+
+</body>
+</html>
+`;
+
 export function startAdminHttp() {
-  const port = Number(process.env.ADMIN_HTTP_PORT || 0);
+
+  const port =
+    Number(
+      process.env.ADMIN_HTTP_PORT ||
+      process.env.PORT ||
+      0
+    );
+
   if (!port) {
-    logger.info?.("Admin HTTP disabled (set ADMIN_HTTP_PORT to enable)");
+    logger.info?.(
+      "Admin HTTP disabled"
+    );
+
     return null;
   }
 
-  const host = process.env.ADMIN_HTTP_HOST || "127.0.0.1";
-  const token = process.env.ADMIN_HTTP_TOKEN || "";
+  const host =
+    process.env.ADMIN_HTTP_HOST ||
+    "0.0.0.0";
+
+  const token =
+    process.env.ADMIN_HTTP_TOKEN ||
+    "";
 
   if (!token) {
     console.warn(
-      "[admin-http] ADMIN_HTTP_PORT set but ADMIN_HTTP_TOKEN missing — refusing to start"
+      "[admin-http] ADMIN_HTTP_TOKEN missing — refusing to start"
     );
+
     return null;
   }
 
-  server = http.createServer(async (req, res) => {
-    try {
-      const url = new URL(req.url || "/", `http://${host}`);
-      const path = url.pathname;
+  server =
+    http.createServer(
+      async (req, res) => {
 
-      // Health is open on localhost only (still require token if remotely bound)
-      if (path === "/health") {
-        const ff = await checkFfmpeg();
-        return json(res, 200, {
-          ok: true,
-          name: BOT_INFO.NAME,
-          version: BOT_INFO.VERSION,
-          mode: await getMode(),
-          ffmpeg: ff.ok,
-          setup: await isSetupDone(),
-          logGroup: !!(await getLogGroupJid()),
-          queue: queueStats(),
-        });
+        try {
+
+          const url =
+            new URL(
+              req.url || "/",
+              `http://${host}`
+            );
+
+          const path =
+            url.pathname;
+
+          /*
+           * Portal page.
+           */
+          if (
+            path === "/" ||
+            path === "/portal"
+          ) {
+            return html(
+              res,
+              portalHtml
+            );
+          }
+
+          /*
+           * Pairing endpoint.
+           * Protected by admin token.
+           */
+          if (
+            path === "/api/pair" &&
+            req.method === "POST"
+          ) {
+
+            if (!auth(req, token)) {
+              return json(
+                res,
+                401,
+                {
+                  error:
+                    "unauthorized"
+                }
+              );
+            }
+
+            const body =
+              await readBody(req);
+
+            const number =
+              String(
+                body.number || ""
+              ).replace(
+                /\D/g,
+                ""
+              );
+
+            if (!number) {
+              return json(
+                res,
+                400,
+                {
+                  error:
+                    "Invalid WhatsApp number"
+                }
+              );
+            }
+
+            try {
+
+              const code =
+                await requestPortalPairing(
+                  number
+                );
+
+              return json(
+                res,
+                200,
+                {
+                  ok: true,
+                  code
+                }
+              );
+
+            } catch (err) {
+
+              return json(
+                res,
+                400,
+                {
+                  error:
+                    err?.message ||
+                    "Pairing failed"
+                }
+              );
+            }
+          }
+
+          /*
+           * Pairing status.
+           */
+          if (
+            path ===
+            "/api/pairing"
+          ) {
+
+            if (!auth(req, token)) {
+              return json(
+                res,
+                401,
+                {
+                  error:
+                    "unauthorized"
+                }
+              );
+            }
+
+            return json(
+              res,
+              200,
+              getPairingInfo()
+            );
+          }
+
+          /*
+           * Health.
+           */
+          if (
+            path === "/health"
+          ) {
+
+            const ff =
+              await checkFfmpeg();
+
+            return json(
+              res,
+              200,
+              {
+                ok: true,
+                name:
+                  BOT_INFO.NAME,
+                version:
+                  BOT_INFO.VERSION,
+                mode:
+                  await getMode(),
+                ffmpeg:
+                  ff.ok,
+                setup:
+                  await isSetupDone(),
+                logGroup:
+                  !!(
+                    await getLogGroupJid()
+                  ),
+                queue:
+                  queueStats(),
+                connected:
+                  !!getPairingInfo()
+                    .connected,
+              }
+            );
+          }
+
+          /*
+           * Everything below requires token.
+           */
+          if (!auth(req, token)) {
+            return json(
+              res,
+              401,
+              {
+                error:
+                  "unauthorized"
+              }
+            );
+          }
+
+          if (
+            path === "/metrics" &&
+            url.searchParams.get(
+              "format"
+            ) === "prom"
+          ) {
+
+            res.writeHead(
+              200,
+              {
+                "Content-Type":
+                  "text/plain; version=0.0.4",
+              }
+            );
+
+            res.end(
+              metricsPrometheus()
+            );
+
+            return;
+          }
+
+          if (
+            path === "/metrics"
+          ) {
+            return json(
+              res,
+              200,
+              getMetricsSnapshot()
+            );
+          }
+
+          if (
+            path === "/flags"
+          ) {
+            return json(
+              res,
+              200,
+              await getFlags()
+            );
+          }
+
+          if (
+            path === "/policies"
+          ) {
+            return json(
+              res,
+              200,
+              await getPolicies()
+            );
+          }
+
+          if (
+            path === "/audit"
+          ) {
+
+            const limit =
+              Number(
+                url.searchParams.get(
+                  "limit"
+                ) || 50
+              );
+
+            const action =
+              url.searchParams.get(
+                "action"
+              ) || undefined;
+
+            return json(
+              res,
+              200,
+              await queryAudit({
+                limit,
+                action,
+              })
+            );
+          }
+
+          return json(
+            res,
+            404,
+            {
+              error:
+                "not_found"
+            }
+          );
+
+        } catch (err) {
+
+          console.error(
+            "[admin-http]",
+            err
+          );
+
+          return json(
+            res,
+            500,
+            {
+              error:
+                err?.message ||
+                "error"
+            }
+          );
+        }
       }
+    );
 
-      if (!auth(req, token)) {
-        return json(res, 401, { error: "unauthorized" });
-      }
+  server.listen(
+    port,
+    host,
+    () => {
+      console.log(
+        `🌐 X-MD Portal running on http://${host}:${port}`
+      );
 
-      if (path === "/metrics" && url.searchParams.get("format") === "prom") {
-        res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4" });
-        res.end(metricsPrometheus());
-        return;
-      }
-
-      if (path === "/metrics") {
-        return json(res, 200, getMetricsSnapshot());
-      }
-
-      if (path === "/flags") {
-        return json(res, 200, await getFlags());
-      }
-
-      if (path === "/policies") {
-        return json(res, 200, await getPolicies());
-      }
-
-      if (path === "/audit") {
-        const limit = Number(url.searchParams.get("limit") || 50);
-        const action = url.searchParams.get("action") || undefined;
-        return json(res, 200, await queryAudit({ limit, action }));
-      }
-
-      if (path === "/") {
-        return json(res, 200, {
-          service: BOT_INFO.NAME,
-          endpoints: [
-            "GET /health",
-            "GET /metrics",
-            "GET /metrics?format=prom",
-            "GET /flags",
-            "GET /policies",
-            "GET /audit?limit=50",
-          ],
-        });
-      }
-
-      return json(res, 404, { error: "not_found" });
-    } catch (err) {
-      return json(res, 500, { error: err?.message || "error" });
+      console.log(
+        `🛡 Admin API protected by ADMIN_HTTP_TOKEN`
+      );
     }
-  });
-
-  server.listen(port, host, () => {
-    console.log(`🛡 Admin HTTP on http://${host}:${port} (token required except notes)`);
-    console.log(`   /health is open; /metrics /audit /flags need Bearer token`);
-  });
+  );
 
   return server;
 }
 
 export function stopAdminHttp() {
+
   if (server) {
     server.close();
     server = null;
