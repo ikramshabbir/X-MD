@@ -231,8 +231,6 @@ function detectReactionLanguage(text) {
 
 const DEEP_REACTION_RULES = [
 
-  /* ---------- HUMOR ---------- */
-
   {
     name: "humor",
     priority: 100,
@@ -247,8 +245,6 @@ const DEEP_REACTION_RULES = [
       "لطیفہ"
     ]
   },
-
-  /* ---------- SADNESS ---------- */
 
   {
     name: "sadness",
@@ -270,8 +266,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- LOVE ---------- */
-
   {
     name: "love",
     priority: 97,
@@ -288,8 +282,6 @@ const DEEP_REACTION_RULES = [
       "أحبك","أحب","حب"
     ]
   },
-
-  /* ---------- FLIRTING ---------- */
 
   {
     name: "flirting",
@@ -308,8 +300,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- ANGER ---------- */
-
   {
     name: "anger",
     priority: 95,
@@ -325,8 +315,6 @@ const DEEP_REACTION_RULES = [
       "غاضب","غاضبة","غضب","كره"
     ]
   },
-
-  /* ---------- FEAR ---------- */
 
   {
     name: "fear",
@@ -344,8 +332,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- SURPRISE ---------- */
-
   {
     name: "surprise",
     priority: 93,
@@ -361,8 +347,6 @@ const DEEP_REACTION_RULES = [
       "حقا","مستحيل","مفاجأة"
     ]
   },
-
-  /* ---------- TOUCHED ---------- */
 
   {
     name: "touched",
@@ -380,8 +364,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- CONFIDENCE ---------- */
-
   {
     name: "confidence",
     priority: 91,
@@ -396,8 +378,6 @@ const DEEP_REACTION_RULES = [
       "میں کر سکتا","میں کر سکتی"
     ]
   },
-
-  /* ---------- CURIOSITY ---------- */
 
   {
     name: "curiosity",
@@ -414,8 +394,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- ANNOYANCE ---------- */
-
   {
     name: "annoyance",
     priority: 89,
@@ -430,8 +408,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- PEACE ---------- */
-
   {
     name: "peace",
     priority: 88,
@@ -445,8 +421,6 @@ const DEEP_REACTION_RULES = [
       "سلام","طمأنينة"
     ]
   },
-
-  /* ---------- BEGGING ---------- */
 
   {
     name: "begging",
@@ -463,8 +437,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- AGREEMENT ---------- */
-
   {
     name: "agreement",
     priority: 86,
@@ -478,8 +450,6 @@ const DEEP_REACTION_RULES = [
       "صحيح","نعم"
     ]
   },
-
-  /* ---------- PRAISE ---------- */
 
   {
     name: "praise",
@@ -497,8 +467,6 @@ const DEEP_REACTION_RULES = [
       "رائع","ممتاز","أحسنت"
     ]
   },
-
-  /* ---------- MOTIVATION ---------- */
 
   {
     name: "motivation",
@@ -519,8 +487,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- RESPECT ---------- */
-
   {
     name: "respect",
     priority: 83,
@@ -533,8 +499,6 @@ const DEEP_REACTION_RULES = [
       "بہادری","لیجنڈ"
     ]
   },
-
-  /* ---------- CELEBRATION ---------- */
 
   {
     name: "celebration",
@@ -553,8 +517,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- EMOTIONAL LAUGH ---------- */
-
   {
     name: "emotionalLaugh",
     priority: 81,
@@ -568,8 +530,6 @@ const DEEP_REACTION_RULES = [
       "ہنس ہنس کے","ہنسی نہیں رک رہی","ہنس ہنس کر"
     ]
   },
-
-  /* ---------- SAVAGE ---------- */
 
   {
     name: "savage",
@@ -585,8 +545,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- TEASING ---------- */
-
   {
     name: "teasing",
     priority: 79,
@@ -600,8 +558,6 @@ const DEEP_REACTION_RULES = [
       "مذاق کر رہی","تنگ کرنا"
     ]
   },
-
-  /* ---------- SUSPICIOUS ---------- */
 
   {
     name: "suspicious",
@@ -617,8 +573,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- DRAMA ---------- */
-
   {
     name: "drama",
     priority: 77,
@@ -631,8 +585,6 @@ const DEEP_REACTION_RULES = [
       "لڑائی","جھگڑا","تماشا","کیا ہوا","پھر کیا ہوا"
     ]
   },
-
-  /* ---------- OVERWHELMED ---------- */
 
   {
     name: "overwhelmed",
@@ -649,8 +601,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- TIRED ---------- */
-
   {
     name: "tired",
     priority: 75,
@@ -664,8 +614,6 @@ const DEEP_REACTION_RULES = [
       "بہت تھک گیا","بہت تھک گئی"
     ]
   },
-
-  /* ---------- FRUSTRATION ---------- */
 
   {
     name: "frustration",
@@ -683,8 +631,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- DISGUST ---------- */
-
   {
     name: "disgust",
     priority: 73,
@@ -698,8 +644,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- SHOCK ---------- */
-
   {
     name: "shockCold",
     priority: 72,
@@ -712,8 +656,6 @@ const DEEP_REACTION_RULES = [
       "سردی","ٹھنڈ","جم گیا","سن","سن رہ گیا"
     ]
   },
-
-  /* ---------- INNOCENT ---------- */
 
   {
     name: "innocent",
@@ -729,8 +671,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- MISCHIEF ---------- */
-
   {
     name: "mischief",
     priority: 70,
@@ -743,8 +683,6 @@ const DEEP_REACTION_RULES = [
       "شرارت","شرارتی","بدمعاشی","بدمعاش","مستی","فطرت"
     ]
   },
-
-  /* ---------- COMFORT ---------- */
 
   {
     name: "comfort",
@@ -760,8 +698,6 @@ const DEEP_REACTION_RULES = [
       "میں سمجھتا","میں سمجھتی","خیال رکھنا"
     ]
   },
-
-  /* ---------- SUPPORT ---------- */
 
   {
     name: "support",
@@ -779,8 +715,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- GRATITUDE ---------- */
-
   {
     name: "gratitude",
     priority: 67,
@@ -795,8 +729,6 @@ const DEEP_REACTION_RULES = [
       "شكرا"
     ]
   },
-
-  /* ---------- DUA ---------- */
 
   {
     name: "dua",
@@ -813,8 +745,6 @@ const DEEP_REACTION_RULES = [
       "دعاء","آمين","اللهم"
     ]
   },
-
-  /* ---------- HEARTBREAK ---------- */
 
   {
     name: "heartbreak",
@@ -833,8 +763,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- LONELINESS ---------- */
-
   {
     name: "loneliness",
     priority: 65,
@@ -848,8 +776,6 @@ const DEEP_REACTION_RULES = [
       "سب چلے گئے"
     ]
   },
-
-  /* ---------- SUCCESS ---------- */
 
   {
     name: "success",
@@ -866,8 +792,6 @@ const DEEP_REACTION_RULES = [
     ]
   },
 
-  /* ---------- ACHIEVEMENT ---------- */
-
   {
     name: "achievement",
     priority: 63,
@@ -882,8 +806,6 @@ const DEEP_REACTION_RULES = [
       "پہلی آئی"
     ]
   },
-
-  /* ---------- DEEP ---------- */
 
   {
     name: "deep",
@@ -902,11 +824,6 @@ const DEEP_REACTION_RULES = [
       "گہری سوچ"
     ]
   },
-
-
-  /* =======================================================
-   * OBJECT / CATEGORY RULES
-   * ======================================================= */
 
   {
     name: "food",
@@ -1078,8 +995,6 @@ const DEEP_REACTION_RULES = [
 
 function applyDeepContext(text, scores) {
 
-  /* Love */
-
   if (
     text.includes("i love you") ||
     text.includes("love you") ||
@@ -1095,8 +1010,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Heartbreak */
-
   if (
     text.includes("broken heart") ||
     text.includes("heart is broken") ||
@@ -1110,8 +1023,6 @@ function applyDeepContext(text, scores) {
     scores.heartbreak += 45;
   }
 
-
-  /* Missing */
 
   if (
     text.includes("i miss you") ||
@@ -1129,8 +1040,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Dua */
-
   if (
     text.includes("pray for me") ||
     text.includes("please pray") ||
@@ -1144,8 +1053,6 @@ function applyDeepContext(text, scores) {
     scores.dua += 40;
   }
 
-
-  /* Motivation */
 
   if (
     text.includes("never give up") ||
@@ -1163,16 +1070,12 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Humor */
-
   if (
     /haha+|hehe+|lol|lmao|lmfao|rofl|🤣|😂/i.test(text)
   ) {
     scores.humor += 35;
   }
 
-
-  /* Emotional laugh */
 
   if (
     (
@@ -1189,8 +1092,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Congratulations */
-
   if (
     text.includes("congratulations") ||
     text.includes("congrats") ||
@@ -1202,8 +1103,6 @@ function applyDeepContext(text, scores) {
     scores.celebration += 40;
   }
 
-
-  /* Success */
 
   if (
     text.includes("we did it") ||
@@ -1217,8 +1116,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Praise */
-
   if (
     text.includes("well done") ||
     text.includes("good job") ||
@@ -1230,8 +1127,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Question */
-
   if (
     text.includes("?") ||
     text.includes("؟")
@@ -1240,8 +1135,6 @@ function applyDeepContext(text, scores) {
       (scores.curiosity || 0) + 12;
   }
 
-
-  /* Multiple sadness */
 
   const sadSignals = [
     "sad","cry","tears","lonely",
@@ -1260,8 +1153,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Multiple love */
-
   const loveSignals = [
     "love","pyar","pyaar","mohabbat",
     "ishq","chahat","محبت","پیار",
@@ -1278,8 +1169,6 @@ function applyDeepContext(text, scores) {
   }
 
 
-  /* Multiple anger */
-
   const angerSignals = [
     "angry","furious","mad","gussa",
     "ghussa","nafrat","غصہ","نفرت",
@@ -1295,8 +1184,6 @@ function applyDeepContext(text, scores) {
     scores.anger += 20;
   }
 
-
-  /* Positive */
 
   const positiveSignals = [
     "amazing","awesome","excellent","great",
@@ -1321,16 +1208,12 @@ function applyDeepContext(text, scores) {
 
 function applyEmojiContext(text, scores) {
 
-  /* Happy / laughing */
-
   if (
     /😂|🤣|😆|😅|😁|😄|😃|😀|😹/.test(text)
   ) {
     scores.humor += 30;
   }
 
-
-  /* Love */
 
   if (
     /❤️|♥️|💕|💖|💗|💓|💞|💘|😍|🥰/.test(text)
@@ -1339,16 +1222,12 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Sad */
-
   if (
     /😢|😭|😞|😔|🥺|💔|🥀/.test(text)
   ) {
     scores.sadness += 30;
   }
 
-
-  /* Angry */
 
   if (
     /😡|🤬|😠|😤|💢/.test(text)
@@ -1357,16 +1236,12 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Surprise */
-
   if (
     /😮|😲|🤯|😳|😱/.test(text)
   ) {
     scores.surprise += 25;
   }
 
-
-  /* Food */
 
   if (
     /🍔|🍕|🍟|🍗|🍖|🌭|🍿|🍩|🍰|🎂|🍫|🍪|🍎|🍓|🍉|🍌|☕|🍵/.test(text)
@@ -1375,16 +1250,12 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Nature */
-
   if (
     /🌳|🌲|🌴|🌱|🌿|🌸|🌹|🌺|🌻|🌼|🌷|🌞|🌙|🌈|☀️|🌧️/.test(text)
   ) {
     scores.nature += 30;
   }
 
-
-  /* Animals */
 
   if (
     /🐶|🐱|🐭|🐹|🐰|🦊|🐻|🐼|🐨|🐯|🦁|🐮|🐷|🐸|🐵|🐔|🐧|🐦|🦋|🐟/.test(text)
@@ -1393,16 +1264,12 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Sports */
-
   if (
     /⚽|🏏|🏀|🏈|⚾|🎾|🏐|🏆|🥇|🥈|🥉/.test(text)
   ) {
     scores.sports += 30;
   }
 
-
-  /* Technology */
 
   if (
     /📱|💻|🖥️|⌨️|🖱️|📲|🤖|💾|🔌|📡/.test(text)
@@ -1411,8 +1278,6 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Travel */
-
   if (
     /✈️|🚗|🚕|🚌|🚆|🚂|🚢|🏝️|🌍|🗺️/.test(text)
   ) {
@@ -1420,16 +1285,12 @@ function applyEmojiContext(text, scores) {
   }
 
 
-  /* Music */
-
   if (
     /🎵|🎶|🎧|🎤|🎸|🥁|🎹/.test(text)
   ) {
     scores.music += 30;
   }
 
-
-  /* Gift */
 
   if (
     /🎁|🎀|💝|🎈/.test(text)
@@ -1440,33 +1301,52 @@ function applyEmojiContext(text, scores) {
 
 
 /* =========================================================
- * GET AUTO REACTION
+ * SCORE RULE
  * ========================================================= */
+
 function scoreRule(text, rule) {
+
   let score = 0;
 
   for (const keyword of rule.keywords || []) {
-    const k = normalizeReactionText(keyword);
 
-    if (!k) continue;
+    const k =
+      normalizeReactionText(
+        keyword
+      );
+
+    if (!k) {
+      continue;
+    }
 
     if (text.includes(k)) {
-      score += k.length >= 8 ? 5 : k.length >= 4 ? 3 : 2;
+
+      score +=
+        k.length >= 8
+          ? 5
+          : k.length >= 4
+            ? 3
+            : 2;
     }
   }
 
   return score;
 }
 
-function getAutoReaction(text) {
-  // ...
-    }
+
+/* =========================================================
+ * GET AUTO REACTION
+ * ========================================================= */
+
 export function getAutoReaction(text = "") {
 
-  const rawText = String(text || "");
+  const rawText =
+    String(text || "");
 
   const msg =
-    normalizeReactionText(rawText);
+    normalizeReactionText(
+      rawText
+    );
 
   if (
     !msg ||
