@@ -560,4 +560,44 @@ async function connect() {
           await messageHandler({
             message,
             conn,
-         
+          });
+        } catch (error) {
+          console.error(
+            "❌ Error processing message:",
+            error?.message || error
+          );
+
+          try {
+            const {
+              systemLog,
+            } = await import(
+              "../utils/logGroup.js"
+            );
+
+            await systemLog(
+              "error",
+              "messages.upsert failed",
+              error
+            );
+          } catch {}
+        }
+      }
+    );
+
+    isConnecting = false;
+
+    return conn;
+  } catch (error) {
+    isConnecting = false;
+
+    cleanupSocket(conn);
+
+    throw error;
+  }
+}
+
+export function getConnection() {
+  return globalConnection;
+}
+
+export default connect;
