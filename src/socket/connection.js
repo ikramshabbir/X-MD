@@ -1,14 +1,14 @@
 /**
- * X-MD Multi-Session WhatsApp socket connection
+ * X-MD / X-ANSARI
+ * Multi-session WhatsApp connection manager
  *
- * Baileys 7.0.0-rc13
- *
- * Supports:
- * - default owner session
- * - multiple portal sessions
- * - independent pairing codes
- * - independent auth databases
- * - independent reconnect
+ * Features:
+ * - Default owner session
+ * - Multiple independent portal sessions
+ * - Independent auth DB per WhatsApp number
+ * - Pairing-code login
+ * - Independent reconnect
+ * - Manual disconnect
  */
 
 import makeWASocket, {
@@ -48,524 +48,589 @@ import {
 } from "../messages/groupGuards.js";
 
 
-/* =========================
-   LOGGER
-========================= */
-
-const logger = pino({
-  level:
-    process.env.BAILEYS_LOG_LEVEL ||
-    "silent",
-});
-
-
-/* =========================
-   SESSION STORAGE
-========================= */
-
-const connections = new Map();
-
-const reconnectAttempts = new Map();
-
-const connectingPromises = new Map();
-
-const pairingInfo = new Map();
-
-const pairingLocks = new Set();
-
-const manualDisconnects = new Set();
-
-
-/* =========================
-   CONSTANTS
-========================= */
+/* =========================================================
+ * CONSTANTS
+ * ======================================================= */
 
 const DEFAULT_SESSION_ID = "default";
 
 const BASE_BACKOFF_MS = 2000;
-
 const MAX_BACKOFF_MS = 60000;
 
 let cachedVersion = null;
 
 
-/* =========================
-   SESSION ID
-========================= */
+/* =========================================================
+ * MAPS
+ * ======================================================= */
+
+const connections = new Map();
+const reconnectAttempts = new Map();
+const connectingPromises = new Map();
+
+const pairingInfo = new Map();
+const pairingLocks = new Set();
+
+const manualDisconnects = new Set();
+
+/*
+ * IMPORTANT:
+ * This promise resolves when WhatsApp socket reaches
+ * the "connecting" state.
+ *
+ * Pairing code must NOT wait for "open".
+ */
+const pairingReadyPromises = new Map();
+
+
+/* =========================================================
+ * LOGGER
+ * ======================================================= */
+
+const logger = pino({
+  level: process.env.BAILEYS_LOG_LEVEL || "silent",
+});
+
+
+/* =========================================================
+ * SESSION ID
+ * ======================================================= */
 
 export function makeSessionId(number) {
-  const cleanNumber =
-    String(number || "")
-      .replace(/\D/g, "");
+  const clean = String(number || "")
+    .replace(/\D/g, "");
 
-  if (!cleanNumber) {
-    throw new Error(
-      "Invalid WhatsApp number"
-    );
-  }
-
-  return `wa-${cleanNumber}`;
+  return `wa-${clean}`;
 }
 
 
-/* =========================
-   BACKOFF
-========================= */
+/* =========================================================
+ * BAILEYS VERSION
+ * ======================================================= */
 
-function backoffDelay(attempt) {
-  const exp =
-    Math.min(
-      MAX_BACKOFF_MS,
-      BASE_BACKOFF_MS *
-        2 ** attempt
-    );
-
-  const jitter =
-    Math.floor(
-      Math.random() * 500
-    );
-
-  return exp + jitter;
-}
-
-
-/* =========================
-   BAILEYS VERSION
-========================= */
-
-async function getVersion() {
+async function getBaileysVersion() {
   if (cachedVersion) {
     return cachedVersion;
   }
 
   try {
-    const {
-      version,
-    } =
-      await fetchLatestBaileysVersion();
+    const result = await fetchLatestBaileysVersion();
 
-    cachedVersion = version;
-  } catch {
-    cachedVersion = undefined;
-  }
-
-  return cachedVersion;
-}
-
-
-/* =========================
-   SOCKET CLEANUP
-========================= */
-
-function cleanupSocket(conn) {
-  if (!conn) {
-    return;
-  }
-
-  try {
-    conn.ev?.removeAllListeners?.();
-  } catch {}
-
-  try {
-    conn.ws?.close?.();
-  } catch {}
-
-  try {
-    conn.end?.(
-      undefined
-    );
-  } catch {}
-}
-
-
-/* =========================
-   PAIRING INFO
-========================= */
-
-export function getPairingInfo(
-  sessionId = DEFAULT_SESSION_ID
-) {
-  const normalized =
-    String(
-      sessionId ||
-        DEFAULT_SESSION_ID
-    );
-
-  const conn =
-    connections.get(
-      normalized
-    );
-
-  const info =
-    pairingInfo.get(
-      normalized
-    ) || {};
-
-  return {
-    sessionId:
-      normalized,
-
-    code:
-      info.code ||
-      null,
-
-    number:
-      info.number ||
-      null,
-
-    connected:
-      !!conn?.user,
-  };
-}
-
-
-/* =========================
-   ALL SESSIONS INFO
-========================= */
-
-export function getAllPairingInfo() {
-  const sessions =
-    new Set([
-      ...connections.keys(),
-      ...pairingInfo.keys(),
-    ]);
-
-  return Array.from(
-    sessions
-  ).map(
-    (sessionId) =>
-      getPairingInfo(
-        sessionId
-      )
-  );
-}
-
-
-/* =========================
-   WAIT FOR SOCKET
-========================= */
-
-async function waitForSocketReady(
-  conn,
-  timeout = 30000
-) {
-  if (!conn) {
-    throw new Error(
-      "WhatsApp socket is not available"
-    );
-  }
-
-  /*
-   * If already authenticated/open,
-   * no need to wait.
-   */
-  if (conn.user) {
-    return;
-  }
-
-  return new Promise(
-    (resolve, reject) => {
-      let finished = false;
-
-      let timer = null;
-
-      const cleanup = () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-
-        try {
-          conn.ev?.off?.(
-            "connection.update",
-            onUpdate
-          );
-        } catch {}
-      };
-
-      const finish = (
-        error = null
-      ) => {
-        if (finished) {
-          return;
-        }
-
-        finished = true;
-
-        cleanup();
-
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      };
-
-      const onUpdate =
-        (update) => {
-
-          if (
-            update?.connection ===
-            "open" ||
-            conn.user
-          ) {
-            finish();
-            return;
-          }
-
-          if (
-            update?.connection ===
-            "close"
-          ) {
-            finish(
-              new Error(
-                "WhatsApp socket closed before pairing code request"
-              )
-            );
-          }
-        };
-
-      timer =
-        setTimeout(
-          () => {
-            finish(
-              new Error(
-                "WhatsApp socket did not become ready in time"
-              )
-            );
-          },
-          timeout
-        );
-
-      try {
-        conn.ev.on(
-          "connection.update",
-          onUpdate
-        );
-
-        /*
-         * Prevent race condition:
-         * socket may become ready immediately
-         * after listener is attached.
-         */
-        if (conn.user) {
-          finish();
-        }
-
-      } catch {
-        finish(
-          new Error(
-            "Unable to monitor WhatsApp socket"
-          )
-        );
-      }
-    }
-  );
-}
-
-
-/* =========================
-   PORTAL PAIRING
-========================= */
-
-export async function requestPortalPairing(
-  number,
-  suppliedSessionId = null
-) {
-  const cleanNumber =
-    String(number || "")
-      .replace(/\D/g, "");
-
-  if (!cleanNumber) {
-    throw new Error(
-      "Invalid WhatsApp number"
-    );
-  }
-
-  /*
-   * Every WhatsApp number gets
-   * its own permanent session ID.
-   */
-  const sessionId =
-    suppliedSessionId ||
-    makeSessionId(
-      cleanNumber
-    );
-
-  /*
-   * Prevent duplicate pairing
-   * requests for same account.
-   */
-  if (
-    pairingLocks.has(
-      sessionId
-    )
-  ) {
-    throw new Error(
-      "A pairing code request is already in progress for this session"
-    );
-  }
-
-  pairingLocks.add(
-    sessionId
-  );
-
-  try {
-
-    let conn =
-      connections.get(
-        sessionId
-      );
-
-    /*
-     * Already connected?
-     */
-    if (conn?.user) {
-      throw new Error(
-        "WhatsApp is already connected for this session"
-      );
-    }
-
-    /*
-     * Create a new independent
-     * socket for this number.
-     */
-    if (!conn) {
+    if (result?.version) {
+      cachedVersion = result.version;
 
       console.log(
-        `🔄 Creating WhatsApp session: ${sessionId}`
+        `📡 Baileys WA version: ${cachedVersion.join(".")}`
       );
 
-      conn =
-        await connect(
-          sessionId
-        );
-
-      if (!conn) {
-        throw new Error(
-          "Unable to create WhatsApp socket"
-        );
-      }
+      return cachedVersion;
     }
-
-    /*
-     * Check again after creation.
-     */
-    if (conn.user) {
-      throw new Error(
-        "WhatsApp is already connected for this session"
-      );
-    }
-
-    /*
-     * Wait until Baileys socket
-     * is actually ready.
-     */
-    await waitForSocketReady(
-      conn
-    );
-
-    /*
-     * Request WhatsApp pairing code.
-     */
-    const code =
-      await conn.requestPairingCode(
-        cleanNumber
-      );
-
-    pairingInfo.set(
-      sessionId,
-      {
-        code,
-        number:
-          cleanNumber,
-        connected:
-          false,
-      }
-    );
-
-    console.log(
-      "\n🔗 Portal pairing code:"
-    );
-
-    console.log(
-      `   Session: ${sessionId}`
-    );
-
-    console.log(
-      `   Number: ${cleanNumber}`
-    );
-
-    console.log(
-      `   Code: ${code}\n`
-    );
-
-    return {
-      code,
-      sessionId,
-    };
-
   } catch (error) {
-
-    const old =
-      pairingInfo.get(
-        sessionId
-      );
-
-    pairingInfo.set(
-      sessionId,
-      {
-        ...(old || {}),
-        code:
-          null,
-      }
-    );
-
-    throw error;
-
-  } finally {
-
-    pairingLocks.delete(
-      sessionId
+    console.log(
+      "⚠️ Could not fetch latest Baileys version:",
+      error?.message || error
     );
   }
+
+  /*
+   * Fallback.
+   * Baileys will use its supported version.
+   */
+  return undefined;
 }
 
 
-/* =========================
-   CONNECT SESSION
-========================= */
+/* =========================================================
+ * CLEANUP
+ * ======================================================= */
 
-async function connect(
-  sessionId = DEFAULT_SESSION_ID
-) {
+function cleanupSocket(sessionId) {
+  connections.delete(sessionId);
+  pairingReadyPromises.delete(sessionId);
+}
 
-  const existing =
-    connections.get(
-      sessionId
-    );
+
+/* =========================================================
+ * WAIT FOR PAIRING READY
+ * ======================================================= */
+
+function waitForPairingReady(sessionId, timeout = 15000) {
+  const existing = pairingReadyPromises.get(sessionId);
 
   if (existing) {
     return existing;
   }
 
-  /*
-   * Prevent two sockets being
-   * created for same session.
-   */
-  if (
-    connectingPromises.has(
-      sessionId
-    )
-  ) {
-    return connectingPromises.get(
-      sessionId
+  let resolveReady;
+  let rejectReady;
+
+  const promise = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+
+  const timer = setTimeout(() => {
+    pairingReadyPromises.delete(sessionId);
+
+    rejectReady(
+      new Error(
+        "WhatsApp socket did not enter connecting state in time"
+      )
     );
+  }, timeout);
+
+  pairingReadyPromises.set(
+    sessionId,
+    {
+      promise,
+      resolve: () => {
+        clearTimeout(timer);
+        pairingReadyPromises.delete(sessionId);
+        resolveReady();
+      },
+      reject: (error) => {
+        clearTimeout(timer);
+        pairingReadyPromises.delete(sessionId);
+        rejectReady(error);
+      },
+    }
+  );
+
+  return promise;
+}
+
+
+/* =========================================================
+ * CREATE CONNECTION
+ * ======================================================= */
+
+async function createConnection(sessionId = DEFAULT_SESSION_ID) {
+  if (connections.has(sessionId)) {
+    return connections.get(sessionId);
   }
 
-  const promise =
-    createConnection(
-      sessionId
-    );
+  if (connectingPromises.has(sessionId)) {
+    return connectingPromises.get(sessionId);
+  }
+
+  const promise = (async () => {
+    try {
+      const {
+        state,
+        saveCreds,
+      } = await useMultiDbAuthState(sessionId);
+
+      const version = await getBaileysVersion();
+
+      const socketOptions = {
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            logger
+          ),
+        },
+
+        logger,
+
+        printQRInTerminal: false,
+
+        syncFullHistory: false,
+
+        markOnlineOnConnect: false,
+
+        generateHighQualityLinkPreview: false,
+
+        browser: [
+          "X-MD",
+          "Chrome",
+          "4.0.0",
+        ],
+      };
+
+      if (version) {
+        socketOptions.version = version;
+      }
+
+      const conn = makeWASocket(socketOptions);
+
+      connections.set(sessionId, conn);
+
+      /*
+       * Pairing-ready promise.
+       *
+       * We resolve it on "connecting", NOT "open".
+       */
+      let pairingReadyResolve = null;
+      let pairingReadyReject = null;
+
+      const pairingReadyPromise = new Promise(
+        (resolve, reject) => {
+          pairingReadyResolve = resolve;
+          pairingReadyReject = reject;
+        }
+      );
+
+      pairingReadyPromises.set(
+        sessionId,
+        {
+          promise: pairingReadyPromise,
+          resolve: pairingReadyResolve,
+          reject: pairingReadyReject,
+        }
+      );
+
+
+      /* =====================================================
+       * CREDS
+       * =================================================== */
+
+      conn.ev.on(
+        "creds.update",
+        saveCreds
+      );
+
+
+      /* =====================================================
+       * CONNECTION UPDATE
+       * =================================================== */
+
+      conn.ev.on(
+        "connection.update",
+        async (update) => {
+          const {
+            connection,
+            lastDisconnect,
+            qr,
+          } = update;
+
+
+          /* -------------------------------------------------
+           * CONNECTING
+           * ------------------------------------------------ */
+
+          if (connection === "connecting") {
+            console.log(
+              `🔄 WhatsApp connecting: ${sessionId}`
+            );
+
+            const ready = pairingReadyPromises.get(
+              sessionId
+            );
+
+            if (ready) {
+              ready.resolve();
+            }
+          }
+
+
+          /* -------------------------------------------------
+           * QR
+           * ------------------------------------------------ */
+
+          if (qr) {
+            if (sessionId === DEFAULT_SESSION_ID) {
+              try {
+                qrcode.generate(qr, {
+                  small: true,
+                });
+              } catch {}
+            }
+          }
+
+
+          /* -------------------------------------------------
+           * OPEN
+           * ------------------------------------------------ */
+
+          if (connection === "open") {
+            console.log(
+              `✅ WhatsApp connected: ${sessionId}`
+            );
+
+            reconnectAttempts.set(
+              sessionId,
+              0
+            );
+
+            pairingInfo.set(
+              sessionId,
+              {
+                ...(pairingInfo.get(sessionId) || {}),
+                sessionId,
+                connected: true,
+                code: null,
+              }
+            );
+
+            /*
+             * Default bot only:
+             * terminal connection + reminders
+             */
+            if (
+              sessionId === DEFAULT_SESSION_ID
+            ) {
+              try {
+                setConnection(conn);
+              } catch (error) {
+                console.log(
+                  "⚠️ setConnection error:",
+                  error?.message || error
+                );
+              }
+
+              try {
+                startReminderScheduler(conn);
+              } catch (error) {
+                console.log(
+                  "⚠️ Reminder scheduler error:",
+                  error?.message || error
+                );
+              }
+            }
+          }
+
+
+          /* -------------------------------------------------
+           * CLOSE
+           * ------------------------------------------------ */
+
+          if (connection === "close") {
+            const statusCode =
+              lastDisconnect?.error?.output?.statusCode ??
+              lastDisconnect?.error?.statusCode ??
+              null;
+
+            console.log(
+              `❌ WhatsApp disconnected: ${sessionId}`,
+              statusCode
+                ? `(code ${statusCode})`
+                : ""
+            );
+
+            if (
+              sessionId === DEFAULT_SESSION_ID
+            ) {
+              try {
+                stopReminderScheduler();
+              } catch {}
+            }
+
+            pairingInfo.set(
+              sessionId,
+              {
+                ...(pairingInfo.get(sessionId) || {}),
+                sessionId,
+                connected: false,
+                code:
+                  pairingInfo.get(sessionId)?.code ||
+                  null,
+              }
+            );
+
+            const wasManual =
+              manualDisconnects.has(
+                sessionId
+              );
+
+            manualDisconnects.delete(
+              sessionId
+            );
+
+            connections.delete(
+              sessionId
+            );
+
+            pairingReadyPromises.delete(
+              sessionId
+            );
+
+
+            /*
+             * Logged out:
+             * delete this session auth DB.
+             */
+            if (
+              statusCode ===
+              DisconnectReason.loggedOut
+            ) {
+              console.log(
+                `🚪 Session logged out: ${sessionId}`
+              );
+
+              try {
+                await resetMultiDbAuthState(
+                  sessionId
+                );
+              } catch (error) {
+                console.log(
+                  "⚠️ Auth reset error:",
+                  error?.message || error
+                );
+              }
+
+              pairingInfo.delete(
+                sessionId
+              );
+
+              reconnectAttempts.delete(
+                sessionId
+              );
+
+              return;
+            }
+
+
+            /*
+             * Manual disconnect:
+             * don't reconnect.
+             */
+            if (wasManual) {
+              console.log(
+                `🛑 Manual disconnect: ${sessionId}`
+              );
+
+              return;
+            }
+
+
+            /*
+             * Automatic reconnect.
+             */
+            const attempt =
+              (reconnectAttempts.get(
+                sessionId
+              ) || 0) + 1;
+
+            reconnectAttempts.set(
+              sessionId,
+              attempt
+            );
+
+            const delay = Math.min(
+              BASE_BACKOFF_MS *
+                Math.pow(2, attempt - 1),
+              MAX_BACKOFF_MS
+            );
+
+            console.log(
+              `♻️ Reconnecting ${sessionId} in ${delay}ms`
+            );
+
+            setTimeout(() => {
+              connect(sessionId).catch(
+                (error) => {
+                  console.log(
+                    `❌ Reconnect failed: ${sessionId}`,
+                    error?.message || error
+                  );
+                }
+              );
+            }, delay);
+          }
+        }
+      );
+
+
+      /* =====================================================
+       * GROUP EVENTS
+       * =================================================== */
+
+      try {
+        attachGroupParticipantEvents(
+          conn
+        );
+      } catch (error) {
+        console.log(
+          "⚠️ Group participant event error:",
+          error?.message || error
+        );
+      }
+
+
+      /* =====================================================
+       * MESSAGES
+       * =================================================== */
+
+      conn.ev.on(
+        "messages.upsert",
+        async ({
+          messages,
+          type,
+        }) => {
+          try {
+            if (!Array.isArray(messages)) {
+              return;
+            }
+
+            for (const rawMessage of messages) {
+              if (!rawMessage) {
+                continue;
+              }
+
+              try {
+                const message =
+                  await serialize(
+                    conn,
+                    rawMessage
+                  );
+
+                /*
+                 * Group guards.
+                 */
+                try {
+                  await processGroupGuards(
+                    conn,
+                    message
+                  );
+                } catch {}
+
+                /*
+                 * Main command/message handler.
+                 */
+                await messageHandler(
+                  conn,
+                  message,
+                  {
+                    sessionId,
+                    type,
+                  }
+                );
+              } catch (error) {
+                console.log(
+                  `⚠️ Message error [${sessionId}]:`,
+                  error?.message || error
+                );
+              }
+            }
+          } catch (error) {
+            console.log(
+              `⚠️ messages.upsert error [${sessionId}]:`,
+              error?.message || error
+            );
+          }
+        }
+      );
+
+
+      /* =====================================================
+       * RETURN
+       * =================================================== */
+
+      return conn;
+
+    } catch (error) {
+      connections.delete(
+        sessionId
+      );
+
+      pairingReadyPromises.delete(
+        sessionId
+      );
+
+      throw error;
+    }
+  })();
 
   connectingPromises.set(
     sessionId,
@@ -573,11 +638,8 @@ async function connect(
   );
 
   try {
-
     return await promise;
-
   } finally {
-
     connectingPromises.delete(
       sessionId
     );
@@ -585,810 +647,290 @@ async function connect(
 }
 
 
-/* =========================
-   CREATE CONNECTION
-========================= */
+/* =========================================================
+ * CONNECT
+ * ======================================================= */
 
-async function createConnection(
-  sessionId
+export async function connect(
+  sessionId = DEFAULT_SESSION_ID
 ) {
+  if (
+    connections.has(sessionId)
+  ) {
+    return connections.get(
+      sessionId
+    );
+  }
 
-  let conn = null;
+  return createConnection(
+    sessionId
+  );
+}
+
+
+/* =========================================================
+ * PORTAL PAIRING
+ * ======================================================= */
+
+export async function requestPortalPairing(
+  number,
+  suppliedSessionId = null
+) {
+  const cleanNumber = String(
+    number || ""
+  ).replace(/\D/g, "");
+
+  if (!cleanNumber) {
+    throw new Error(
+      "Invalid WhatsApp number"
+    );
+  }
+
+  /*
+   * If no session ID is supplied,
+   * generate one from the WhatsApp number.
+   */
+  const sessionId =
+    suppliedSessionId ||
+    makeSessionId(
+      cleanNumber
+    );
+
+
+  /* -------------------------------------------------------
+   * Already paired / connected
+   * ----------------------------------------------------- */
+
+  const existing =
+    connections.get(
+      sessionId
+    );
+
+  if (
+    existing?.user
+  ) {
+    throw new Error(
+      "WhatsApp is already connected"
+    );
+  }
+
+
+  /* -------------------------------------------------------
+   * Prevent duplicate requests
+   * ----------------------------------------------------- */
+
+  if (
+    pairingLocks.has(
+      sessionId
+    )
+  ) {
+    throw new Error(
+      "Pairing request already in progress"
+    );
+  }
+
+  pairingLocks.add(
+    sessionId
+  );
+
 
   try {
-
-    /*
-     * Every session gets its own
-     * SQLite auth database.
-     */
-    const {
-      state,
-      saveCreds,
-    } =
-      await useMultiDbAuthState(
-        sessionId
-      );
-
-    const version =
-      await getVersion();
-
-    const socketOptions = {
-
-      logger,
-
-      auth: {
-        creds:
-          state.creds,
-
-        keys:
-          makeCacheableSignalKeyStore(
-            state.keys,
-            logger
-          ),
-      },
-
-      syncFullHistory:
-        false,
-
-      shouldSyncHistoryMessage:
-        () => false,
-
-      markOnlineOnConnect:
-        false,
-
-      generateHighQualityLinkPreview:
-        false,
-
-      emitOwnEvents:
-        false,
-
-      shouldIgnoreJid:
-        (jid) =>
-          !jid ||
-          jid ===
-            "status@broadcast" ||
-          jid.endsWith(
-            "@broadcast"
-          ),
-
-      getMessage:
-        async (key) => {
-
-          const id =
-            key?.id;
-
-          if (!id) {
-            return undefined;
-          }
-
-          return (
-            msgCache.get(
-              id
-            ) ||
-            undefined
-          );
-        },
-
-      cachedGroupMetadata:
-        async (jid) =>
-          groupCache.get(
-            jid
-          ),
-    };
-
-    if (version) {
-      socketOptions.version =
-        version;
-    }
-
-    /*
-     * Create independent
-     * WhatsApp socket.
-     */
-    conn =
-      makeWASocket(
-        socketOptions
-      );
-
-    connections.set(
-      sessionId,
-      conn
+    console.log(
+      `🔐 Pairing request: ${cleanNumber}`
     );
 
     /*
-     * Keep terminal handler
-     * connected only to default
-     * owner session.
+     * Create independent socket.
      */
-    if (
-      sessionId ===
-      DEFAULT_SESSION_ID
-    ) {
-      setConnection(
-        conn
+    const conn =
+      await connect(
+        sessionId
+      );
+
+    /*
+     * Wait ONLY until socket reaches
+     * "connecting".
+     *
+     * DO NOT wait for "open".
+     */
+    const ready =
+      pairingReadyPromises.get(
+        sessionId
+      );
+
+    if (ready) {
+      await ready.promise;
+    }
+
+
+    /*
+     * Small delay gives the WebSocket
+     * transport a moment to initialize.
+     */
+    await new Promise(
+      (resolve) =>
+        setTimeout(
+          resolve,
+          1000
+        )
+    );
+
+
+    /*
+     * Check if it somehow became
+     * connected already.
+     */
+    if (conn.user) {
+      throw new Error(
+        "WhatsApp is already connected"
       );
     }
+
+
+    /*
+     * IMPORTANT:
+     * Phone number must be digits only.
+     */
+    const code =
+      await conn.requestPairingCode(
+        cleanNumber
+      );
+
+
+    if (!code) {
+      throw new Error(
+        "WhatsApp did not return a pairing code"
+      );
+    }
+
+
+    pairingInfo.set(
+      sessionId,
+      {
+        sessionId,
+        number: cleanNumber,
+        code,
+        connected: false,
+        createdAt: Date.now(),
+      }
+    );
+
 
     console.log(
-      `🔌 WhatsApp socket created: ${sessionId}`
+      `🔗 Pairing code generated for ${sessionId}: ${code}`
     );
 
 
-    /* =====================
-       CONNECTION UPDATE
-    ===================== */
-
-    conn.ev.on(
-      "connection.update",
-      async (update) => {
-
-        const {
-          connection,
-          lastDisconnect,
-          qr,
-        } = update;
-
-
-        /* QR */
-        if (qr) {
-
-          console.log(
-            `\n📱 QR available: ${sessionId}\n`
-          );
-
-          qrcode.generate(
-            qr,
-            {
-              small: true,
-            }
-          );
-        }
-
-
-        /* CONNECTED */
-        if (
-          connection ===
-          "open"
-        ) {
-
-          reconnectAttempts.set(
-            sessionId,
-            0
-          );
-
-          const current =
-            pairingInfo.get(
-              sessionId
-            ) || {};
-
-          pairingInfo.set(
-            sessionId,
-            {
-              ...current,
-              code:
-                null,
-              connected:
-                true,
-            }
-          );
-
-          console.log(
-            `✅ WhatsApp connected: ${sessionId}`
-          );
-
-
-          /*
-           * Reminder scheduler
-           * only for default bot.
-           */
-          if (
-            sessionId ===
-            DEFAULT_SESSION_ID
-          ) {
-
-            startReminderScheduler(
-              conn
-            );
-          }
-
-
-          /*
-           * Log group + onboarding
-           * only for default owner.
-           */
-          if (
-            sessionId ===
-            DEFAULT_SESSION_ID
-          ) {
-
-            setTimeout(
-              async () => {
-
-                try {
-
-                  const {
-                    ensureLogGroup,
-                    attachLogGroupConn,
-                    systemLog,
-                  } =
-                    await import(
-                      "../utils/logGroup.js"
-                    );
-
-                  const {
-                    startOnboardingIfNeeded,
-                  } =
-                    await import(
-                      "../onboarding/setup.js"
-                    );
-
-                  const loggerMod =
-                    (
-                      await import(
-                        "../utils/logger.js"
-                      )
-                    ).default;
-
-                  attachLogGroupConn(
-                    conn
-                  );
-
-                  loggerMod.setRemoteSink(
-                    (
-                      level,
-                      msg,
-                      detail
-                    ) =>
-                      systemLog(
-                        level,
-                        msg,
-                        detail
-                      )
-                  );
-
-                  const res =
-                    await ensureLogGroup(
-                      conn
-                    );
-
-                  if (
-                    res.needsManual
-                  ) {
-
-                    console.warn(
-                      "[onboarding] Set OWNER_NUMBER or run #setlog in a group you create."
-                    );
-                  }
-
-                  if (
-                    res.jid
-                  ) {
-
-                    await startOnboardingIfNeeded(
-                      conn
-                    );
-                  }
-
-                } catch (err) {
-
-                  console.error(
-                    "Onboarding/log-group init failed:",
-                    err?.message ||
-                      err
-                  );
-                }
-
-              },
-              2500
-            );
-          }
-
-          return;
-        }
-
-
-        /* CONNECTION CLOSED */
-        if (
-          connection ===
-          "close"
-        ) {
-
-          const statusCode =
-            lastDisconnect
-              ?.error
-              ?.output
-              ?.statusCode;
-
-          const isLoggedOut =
-            statusCode ===
-            DisconnectReason.loggedOut;
-
-          /*
-           * Stop scheduler only
-           * for default session.
-           */
-          if (
-            sessionId ===
-            DEFAULT_SESSION_ID
-          ) {
-
-            stopReminderScheduler();
-          }
-
-
-          /*
-           * Remove current socket.
-           */
-          if (
-            connections.get(
-              sessionId
-            ) === conn
-          ) {
-
-            connections.delete(
-              sessionId
-            );
-          }
-
-          pairingInfo.set(
-            sessionId,
-            {
-              ...(
-                pairingInfo.get(
-                  sessionId
-                ) || {}
-              ),
-              code:
-                null,
-              connected:
-                false,
-            }
-          );
-
-          cleanupSocket(
-            conn
-          );
-
-
-          /* =================
-             LOGGED OUT
-          ================= */
-
-          if (isLoggedOut) {
-
-            console.log(
-              `🔓 WhatsApp logged out: ${sessionId}`
-            );
-
-            try {
-
-              await resetMultiDbAuthState(
-                sessionId
-              );
-
-              console.log(
-                `🧹 Auth removed: ${sessionId}`
-              );
-
-            } catch (err) {
-
-              console.error(
-                `❌ Auth reset failed (${sessionId}):`,
-                err?.message ||
-                  err
-              );
-            }
-
-            reconnectAttempts.delete(
-              sessionId
-            );
-
-            pairingInfo.delete(
-              sessionId
-            );
-
-            if (
-              sessionId ===
-              DEFAULT_SESSION_ID
-            ) {
-
-              setConnection(
-                null
-              );
-            }
-
-            console.log(
-              `⏹️ Waiting for new pairing: ${sessionId}`
-            );
-
-            return;
-          }
-
-
-          /* =================
-             MANUAL DISCONNECT
-          ================= */
-
-          if (
-            manualDisconnects.has(
-              sessionId
-            )
-          ) {
-
-            manualDisconnects.delete(
-              sessionId
-            );
-
-            reconnectAttempts.delete(
-              sessionId
-            );
-
-            pairingInfo.delete(
-              sessionId
-            );
-
-            if (
-              sessionId ===
-              DEFAULT_SESSION_ID
-            ) {
-
-              setConnection(
-                null
-              );
-            }
-
-            console.log(
-              `⏹️ Session manually disconnected: ${sessionId}`
-            );
-
-            return;
-          }
-
-
-          /* =================
-             AUTO RECONNECT
-          ================= */
-
-          const attempt =
-            reconnectAttempts.get(
-              sessionId
-            ) || 0;
-
-          const delay =
-            backoffDelay(
-              attempt
-            );
-
-          reconnectAttempts.set(
-            sessionId,
-            attempt + 1
-          );
-
-          console.log(
-            `❌ Connection closed (${sessionId}, code ${
-              statusCode ?? "?"
-            }). Reconnecting in ${
-              Math.round(
-                delay / 1000
-              )
-            }s...`
-          );
-
-          setTimeout(
-            () => {
-
-              connect(
-                sessionId
-              ).catch(
-                (err) => {
-
-                  console.error(
-                    `Reconnect failed (${sessionId}):`,
-                    err?.message ||
-                      err
-                  );
-                }
-              );
-
-            },
-            delay
-          );
-        }
-      }
-    );
-
-
-    /* =====================
-       SAVE CREDENTIALS
-    ===================== */
-
-    conn.ev.on(
-      "creds.update",
-      saveCreds
-    );
-
-
-    /* =====================
-       GROUP EVENTS
-    ===================== */
-
-    attachGroupParticipantEvents(
-      conn
-    );
-
-
-    conn.ev.on(
-      "groups.update",
-      async (updates) => {
-
-        for (
-          const update of updates
-        ) {
-
-          if (
-            update.id
-          ) {
-
-            groupCache.delete(
-              update.id
-            );
-          }
-        }
-      }
-    );
-
-
-    /* =====================
-       MESSAGE HANDLER
-    ===================== */
-
-    conn.ev.on(
-      "messages.upsert",
-      async (m) => {
-
-        try {
-
-          if (
-            m.type &&
-            m.type !== "notify"
-          ) {
-            return;
-          }
-
-          if (
-            m.requestId
-          ) {
-            return;
-          }
-
-          const msg =
-            m.messages?.[0];
-
-          if (
-            !msg?.message
-          ) {
-            return;
-          }
-
-          if (
-            msg.key
-              ?.remoteJid ===
-            "status@broadcast"
-          ) {
-            return;
-          }
-
-
-          /* CACHE MESSAGE */
-
-          if (
-            msg.key?.id
-          ) {
-
-            msgCache.set(
-              msg.key.id,
-              msg.message
-            );
-          }
-
-
-          /* SERIALIZE */
-
-          const message =
-            await serialize(
-              msg,
-              conn
-            );
-
-          if (!message) {
-            return;
-          }
-
-
-          /* GROUP GUARDS */
-
-          const blocked =
-            await processGroupGuards(
-              {
-                message,
-                conn,
-              }
-            );
-
-          if (blocked) {
-            return;
-          }
-
-
-          /* COMMAND HANDLER */
-
-          await messageHandler(
-            {
-              message,
-              conn,
-            }
-          );
-
-        } catch (error) {
-
-          console.error(
-            `❌ Error processing message (${sessionId}):`,
-            error?.message ||
-              error
-          );
-
-          /*
-           * Remote system log only
-           * for default session.
-           */
-          try {
-
-            const {
-              systemLog,
-            } =
-              await import(
-                "../utils/logGroup.js"
-              );
-
-            if (
-              sessionId ===
-              DEFAULT_SESSION_ID
-            ) {
-
-              await systemLog(
-                "error",
-                "messages.upsert failed",
-                error
-              );
-            }
-
-          } catch {}
-        }
-      }
-    );
-
-
-    return conn;
+    return {
+      code,
+      sessionId,
+    };
 
   } catch (error) {
-
-    console.error(
-      `❌ Failed creating session ${sessionId}:`,
-      error?.message ||
-        error
+    console.log(
+      `❌ Pairing failed [${sessionId}]:`,
+      error?.message || error
     );
 
-    if (
-      connections.get(
-        sessionId
-      ) === conn
-    ) {
-
-      connections.delete(
-        sessionId
-      );
-    }
-
-    if (
-      sessionId ===
-      DEFAULT_SESSION_ID
-    ) {
-
-      setConnection(
-        null
-      );
-    }
-
-    cleanupSocket(
-      conn
-    );
+    /*
+     * Don't destroy the auth DB here.
+     * The socket can reconnect / retry.
+     */
 
     throw error;
+
+  } finally {
+    pairingLocks.delete(
+      sessionId
+    );
   }
 }
 
 
-/* =========================
-   GET CONNECTION
-========================= */
+/* =========================================================
+ * GET CONNECTION
+ * ======================================================= */
 
 export function getConnection(
   sessionId = DEFAULT_SESSION_ID
 ) {
-
-  return (
-    connections.get(
-      sessionId
-    ) ||
-    null
-  );
+  return connections.get(
+    sessionId
+  ) || null;
 }
 
 
-/* =========================
-   GET ALL CONNECTIONS
-========================= */
+/* =========================================================
+ * GET ALL CONNECTIONS
+ * ======================================================= */
 
 export function getConnections() {
+  return connections;
+}
 
-  return new Map(
-    connections
+
+/* =========================================================
+ * PAIRING INFO
+ * ======================================================= */
+
+export function getPairingInfo(
+  sessionId = DEFAULT_SESSION_ID
+) {
+  return (
+    pairingInfo.get(
+      sessionId
+    ) || null
   );
 }
 
 
-/* =========================
-   DISCONNECT SESSION
-========================= */
+export function getAllPairingInfo() {
+  return pairingInfo;
+}
+
+
+/* =========================================================
+ * DISCONNECT SESSION
+ * ======================================================= */
 
 export async function disconnectSession(
   sessionId
 ) {
-
-  const normalized =
-    String(
-      sessionId || ""
-    ).trim();
-
-  if (!normalized) {
-    return false;
-  }
-
   const conn =
     connections.get(
-      normalized
+      sessionId
     );
 
   if (!conn) {
     return false;
   }
 
-  /*
-   * Prevent automatic reconnect
-   * after manual disconnect.
-   */
+  console.log(
+    `🛑 Disconnecting session: ${sessionId}`
+  );
+
   manualDisconnects.add(
-    normalized
+    sessionId
   );
 
   try {
-
-    await conn.end?.(
-      undefined
+    conn.end(
+      new Error(
+        "Manual disconnect"
+      )
     );
+  } catch {
+    connections.delete(
+      sessionId
+    );
+  }
 
-  } catch {}
-
-  /*
-   * The connection.update close
-   * handler will finish cleanup.
-   */
   return true;
 }
 
 
-/* =========================
-   DEFAULT EXPORT
-========================= */
+/* =========================================================
+ * DEFAULT EXPORT
+ * ======================================================= */
 
 export default connect;
