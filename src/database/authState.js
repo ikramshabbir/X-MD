@@ -1,5 +1,3 @@
-title="authState.js replacement"
-
 /**
  * Auth State Factory
  * Dual backend: better-sqlite3 | Sequelize Postgres
