@@ -6,9 +6,9 @@
  * Supports:
  * - default owner session
  * - multiple portal sessions
- * - independent reconnect
  * - independent pairing codes
  * - independent auth databases
+ * - independent reconnect
  */
 
 import makeWASocket, {
@@ -47,6 +47,11 @@ import {
   processGroupGuards,
 } from "../messages/groupGuards.js";
 
+
+/* =========================
+   LOGGER
+========================= */
+
 const logger = pino({
   level:
     process.env.BAILEYS_LOG_LEVEL ||
@@ -59,58 +64,35 @@ const logger = pino({
 ========================= */
 
 const connections = new Map();
+
 const reconnectAttempts = new Map();
+
 const connectingPromises = new Map();
 
 const pairingInfo = new Map();
+
 const pairingLocks = new Set();
 
-let cachedVersion = null;
-
-
-/*
- * Default session remains the
- * original owner bot.
- */
-const DEFAULT_SESSION_ID = "default";
+const manualDisconnects = new Set();
 
 
 /* =========================
-   BACKOFF
+   CONSTANTS
 ========================= */
 
+const DEFAULT_SESSION_ID = "default";
+
 const BASE_BACKOFF_MS = 2000;
+
 const MAX_BACKOFF_MS = 60000;
 
-function backoffDelay(attempt) {
-  const exp = Math.min(
-    MAX_BACKOFF_MS,
-    BASE_BACKOFF_MS * 2 ** attempt
-  );
-
-  const jitter =
-    Math.floor(Math.random() * 500);
-
-  return exp + jitter;
-}
+let cachedVersion = null;
 
 
 /* =========================
    SESSION ID
 ========================= */
 
-/*
- * Create a stable session ID
- * from the WhatsApp number.
- *
- * Example:
- *
- * 923001234567
- *
- * becomes:
- *
- * wa-923001234567
- */
 export function makeSessionId(number) {
   const cleanNumber =
     String(number || "")
@@ -123,6 +105,27 @@ export function makeSessionId(number) {
   }
 
   return `wa-${cleanNumber}`;
+}
+
+
+/* =========================
+   BACKOFF
+========================= */
+
+function backoffDelay(attempt) {
+  const exp =
+    Math.min(
+      MAX_BACKOFF_MS,
+      BASE_BACKOFF_MS *
+        2 ** attempt
+    );
+
+  const jitter =
+    Math.floor(
+      Math.random() * 500
+    );
+
+  return exp + jitter;
 }
 
 
@@ -183,33 +186,43 @@ export function getPairingInfo(
   sessionId = DEFAULT_SESSION_ID
 ) {
   const normalized =
-    String(sessionId || DEFAULT_SESSION_ID);
+    String(
+      sessionId ||
+        DEFAULT_SESSION_ID
+    );
 
   const conn =
-    connections.get(normalized);
+    connections.get(
+      normalized
+    );
 
   const info =
-    pairingInfo.get(normalized) || {};
+    pairingInfo.get(
+      normalized
+    ) || {};
 
   return {
-    sessionId: normalized,
+    sessionId:
+      normalized,
 
     code:
-      info.code || null,
+      info.code ||
+      null,
 
     number:
-      info.number || null,
+      info.number ||
+      null,
 
     connected:
       !!conn?.user,
-
   };
 }
 
 
-/*
- * Get all active session info.
- */
+/* =========================
+   ALL SESSIONS INFO
+========================= */
+
 export function getAllPairingInfo() {
   const sessions =
     new Set([
@@ -217,9 +230,13 @@ export function getAllPairingInfo() {
       ...pairingInfo.keys(),
     ]);
 
-  return Array.from(sessions).map(
+  return Array.from(
+    sessions
+  ).map(
     (sessionId) =>
-      getPairingInfo(sessionId)
+      getPairingInfo(
+        sessionId
+      )
   );
 }
 
@@ -230,7 +247,7 @@ export function getAllPairingInfo() {
 
 async function waitForSocketReady(
   conn,
-  timeout = 15000
+  timeout = 30000
 ) {
   if (!conn) {
     throw new Error(
@@ -238,10 +255,11 @@ async function waitForSocketReady(
     );
   }
 
-  if (
-    conn.user ||
-    conn.ws
-  ) {
+  /*
+   * If already authenticated/open,
+   * no need to wait.
+   */
+  if (conn.user) {
     return;
   }
 
@@ -249,46 +267,46 @@ async function waitForSocketReady(
     (resolve, reject) => {
       let finished = false;
 
-      let timer;
+      let timer = null;
 
-      const finish =
-        (error = null) => {
-          if (finished) {
-            return;
-          }
-
-          finished = true;
-
+      const cleanup = () => {
+        if (timer) {
           clearTimeout(timer);
+        }
 
-          try {
-            conn.ev?.off?.(
-              "connection.update",
-              onUpdate
-            );
-          } catch {}
+        try {
+          conn.ev?.off?.(
+            "connection.update",
+            onUpdate
+          );
+        } catch {}
+      };
 
-          if (error) {
-            reject(error);
-          } else {
-            resolve();
-          }
-        };
+      const finish = (
+        error = null
+      ) => {
+        if (finished) {
+          return;
+        }
+
+        finished = true;
+
+        cleanup();
+
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      };
 
       const onUpdate =
         (update) => {
-          if (
-            update?.connection ===
-              "connecting" ||
-            update?.qr
-          ) {
-            finish();
-            return;
-          }
 
           if (
             update?.connection ===
-            "open"
+            "open" ||
+            conn.user
           ) {
             finish();
             return;
@@ -323,6 +341,16 @@ async function waitForSocketReady(
           "connection.update",
           onUpdate
         );
+
+        /*
+         * Prevent race condition:
+         * socket may become ready immediately
+         * after listener is attached.
+         */
+        if (conn.user) {
+          finish();
+        }
+
       } catch {
         finish(
           new Error(
@@ -354,36 +382,42 @@ export async function requestPortalPairing(
   }
 
   /*
-   * Use supplied portal session
-   * when available.
-   *
-   * Otherwise create a stable
-   * WhatsApp-number based session.
+   * Every WhatsApp number gets
+   * its own permanent session ID.
    */
   const sessionId =
     suppliedSessionId ||
-    makeSessionId(cleanNumber);
+    makeSessionId(
+      cleanNumber
+    );
 
   /*
-   * Prevent two pairing requests
-   * for the same session.
+   * Prevent duplicate pairing
+   * requests for same account.
    */
-  if (pairingLocks.has(sessionId)) {
+  if (
+    pairingLocks.has(
+      sessionId
+    )
+  ) {
     throw new Error(
       "A pairing code request is already in progress for this session"
     );
   }
 
-  pairingLocks.add(sessionId);
+  pairingLocks.add(
+    sessionId
+  );
 
   try {
+
     let conn =
-      connections.get(sessionId);
+      connections.get(
+        sessionId
+      );
 
     /*
-     * If an existing socket is
-     * already authenticated, don't
-     * create another one.
+     * Already connected?
      */
     if (conn?.user) {
       throw new Error(
@@ -392,9 +426,11 @@ export async function requestPortalPairing(
     }
 
     /*
-     * Create a fresh socket if needed.
+     * Create a new independent
+     * socket for this number.
      */
     if (!conn) {
+
       console.log(
         `🔄 Creating WhatsApp session: ${sessionId}`
       );
@@ -412,9 +448,7 @@ export async function requestPortalPairing(
     }
 
     /*
-     * If credentials from an
-     * already-linked session exist,
-     * pairing again is not needed.
+     * Check again after creation.
      */
     if (conn.user) {
       throw new Error(
@@ -422,12 +456,16 @@ export async function requestPortalPairing(
       );
     }
 
+    /*
+     * Wait until Baileys socket
+     * is actually ready.
+     */
     await waitForSocketReady(
       conn
     );
 
     /*
-     * Request fresh pairing code.
+     * Request WhatsApp pairing code.
      */
     const code =
       await conn.requestPairingCode(
@@ -438,8 +476,10 @@ export async function requestPortalPairing(
       sessionId,
       {
         code,
-        number: cleanNumber,
-        connected: false,
+        number:
+          cleanNumber,
+        connected:
+          false,
       }
     );
 
@@ -475,13 +515,15 @@ export async function requestPortalPairing(
       sessionId,
       {
         ...(old || {}),
-        code: null,
+        code:
+          null,
       }
     );
 
     throw error;
 
   } finally {
+
     pairingLocks.delete(
       sessionId
     );
@@ -490,15 +532,13 @@ export async function requestPortalPairing(
 
 
 /* =========================
-   CONNECT
+   CONNECT SESSION
 ========================= */
 
 async function connect(
   sessionId = DEFAULT_SESSION_ID
 ) {
-  /*
-   * Return existing socket.
-   */
+
   const existing =
     connections.get(
       sessionId
@@ -509,8 +549,8 @@ async function connect(
   }
 
   /*
-   * Prevent duplicate socket
-   * creation for same session.
+   * Prevent two sockets being
+   * created for same session.
    */
   if (
     connectingPromises.has(
@@ -533,8 +573,11 @@ async function connect(
   );
 
   try {
+
     return await promise;
+
   } finally {
+
     connectingPromises.delete(
       sessionId
     );
@@ -549,9 +592,15 @@ async function connect(
 async function createConnection(
   sessionId
 ) {
+
   let conn = null;
 
   try {
+
+    /*
+     * Every session gets its own
+     * SQLite auth database.
+     */
     const {
       state,
       saveCreds,
@@ -564,6 +613,7 @@ async function createConnection(
       await getVersion();
 
     const socketOptions = {
+
       logger,
 
       auth: {
@@ -603,6 +653,7 @@ async function createConnection(
 
       getMessage:
         async (key) => {
+
           const id =
             key?.id;
 
@@ -611,14 +662,18 @@ async function createConnection(
           }
 
           return (
-            msgCache.get(id) ||
+            msgCache.get(
+              id
+            ) ||
             undefined
           );
         },
 
       cachedGroupMetadata:
         async (jid) =>
-          groupCache.get(jid),
+          groupCache.get(
+            jid
+          ),
     };
 
     if (version) {
@@ -626,6 +681,10 @@ async function createConnection(
         version;
     }
 
+    /*
+     * Create independent
+     * WhatsApp socket.
+     */
     conn =
       makeWASocket(
         socketOptions
@@ -637,8 +696,9 @@ async function createConnection(
     );
 
     /*
-     * Terminal handler controls
-     * only the default/owner socket.
+     * Keep terminal handler
+     * connected only to default
+     * owner session.
      */
     if (
       sessionId ===
@@ -655,12 +715,13 @@ async function createConnection(
 
 
     /* =====================
-       CONNECTION EVENTS
+       CONNECTION UPDATE
     ===================== */
 
     conn.ev.on(
       "connection.update",
       async (update) => {
+
         const {
           connection,
           lastDisconnect,
@@ -668,11 +729,9 @@ async function createConnection(
         } = update;
 
 
-        /*
-         * QR fallback.
-         */
-
+        /* QR */
         if (qr) {
+
           console.log(
             `\n📱 QR available: ${sessionId}\n`
           );
@@ -686,14 +745,12 @@ async function createConnection(
         }
 
 
-        /*
-         * CONNECTED
-         */
-
+        /* CONNECTED */
         if (
           connection ===
           "open"
         ) {
+
           reconnectAttempts.set(
             sessionId,
             0
@@ -708,8 +765,10 @@ async function createConnection(
             sessionId,
             {
               ...current,
-              code: null,
-              connected: true,
+              code:
+                null,
+              connected:
+                true,
             }
           );
 
@@ -719,17 +778,14 @@ async function createConnection(
 
 
           /*
-           * Reminder scheduler.
-           *
-           * Only the default bot
-           * uses the existing global
-           * scheduler to avoid conflicts.
+           * Reminder scheduler
+           * only for default bot.
            */
-
           if (
             sessionId ===
             DEFAULT_SESSION_ID
           ) {
+
             startReminderScheduler(
               conn
             );
@@ -737,17 +793,19 @@ async function createConnection(
 
 
           /*
-           * Log group / onboarding
-           * belongs to default bot.
+           * Log group + onboarding
+           * only for default owner.
            */
-
           if (
             sessionId ===
             DEFAULT_SESSION_ID
           ) {
+
             setTimeout(
               async () => {
+
                 try {
+
                   const {
                     ensureLogGroup,
                     attachLogGroupConn,
@@ -796,6 +854,7 @@ async function createConnection(
                   if (
                     res.needsManual
                   ) {
+
                     console.warn(
                       "[onboarding] Set OWNER_NUMBER or run #setlog in a group you create."
                     );
@@ -804,18 +863,21 @@ async function createConnection(
                   if (
                     res.jid
                   ) {
+
                     await startOnboardingIfNeeded(
                       conn
                     );
                   }
 
                 } catch (err) {
+
                   console.error(
                     "Onboarding/log-group init failed:",
                     err?.message ||
                       err
                   );
                 }
+
               },
               2500
             );
@@ -825,14 +887,12 @@ async function createConnection(
         }
 
 
-        /*
-         * DISCONNECTED
-         */
-
+        /* CONNECTION CLOSED */
         if (
           connection ===
           "close"
         ) {
+
           const statusCode =
             lastDisconnect
               ?.error
@@ -843,64 +903,65 @@ async function createConnection(
             statusCode ===
             DisconnectReason.loggedOut;
 
-
           /*
            * Stop scheduler only
            * for default session.
            */
-
           if (
             sessionId ===
             DEFAULT_SESSION_ID
           ) {
+
             stopReminderScheduler();
           }
 
 
           /*
-           * Remove connection.
+           * Remove current socket.
            */
-
           if (
             connections.get(
               sessionId
             ) === conn
           ) {
+
             connections.delete(
               sessionId
             );
           }
 
-
           pairingInfo.set(
             sessionId,
             {
-              ...(pairingInfo.get(
-                sessionId
-              ) || {}),
-              code: null,
-              connected: false,
+              ...(
+                pairingInfo.get(
+                  sessionId
+                ) || {}
+              ),
+              code:
+                null,
+              connected:
+                false,
             }
           );
-
 
           cleanupSocket(
             conn
           );
 
 
-          /*
-           * TRUE LOGOUT
-           */
+          /* =================
+             LOGGED OUT
+          ================= */
 
-          if (
-            isLoggedOut
-          ) {
+          if (isLoggedOut) {
+
             console.log(
               `🔓 WhatsApp logged out: ${sessionId}`
             );
 
             try {
+
               await resetMultiDbAuthState(
                 sessionId
               );
@@ -910,6 +971,7 @@ async function createConnection(
               );
 
             } catch (err) {
+
               console.error(
                 `❌ Auth reset failed (${sessionId}):`,
                 err?.message ||
@@ -929,6 +991,7 @@ async function createConnection(
               sessionId ===
               DEFAULT_SESSION_ID
             ) {
+
               setConnection(
                 null
               );
@@ -942,9 +1005,49 @@ async function createConnection(
           }
 
 
-          /*
-           * TEMPORARY DISCONNECT
-           */
+          /* =================
+             MANUAL DISCONNECT
+          ================= */
+
+          if (
+            manualDisconnects.has(
+              sessionId
+            )
+          ) {
+
+            manualDisconnects.delete(
+              sessionId
+            );
+
+            reconnectAttempts.delete(
+              sessionId
+            );
+
+            pairingInfo.delete(
+              sessionId
+            );
+
+            if (
+              sessionId ===
+              DEFAULT_SESSION_ID
+            ) {
+
+              setConnection(
+                null
+              );
+            }
+
+            console.log(
+              `⏹️ Session manually disconnected: ${sessionId}`
+            );
+
+            return;
+          }
+
+
+          /* =================
+             AUTO RECONNECT
+          ================= */
 
           const attempt =
             reconnectAttempts.get(
@@ -961,20 +1064,24 @@ async function createConnection(
             attempt + 1
           );
 
-
           console.log(
-            `❌ Connection closed (${sessionId}, code ${statusCode ?? "?"}). Reconnecting in ${Math.round(
-              delay / 1000
-            )}s...`
+            `❌ Connection closed (${sessionId}, code ${
+              statusCode ?? "?"
+            }). Reconnecting in ${
+              Math.round(
+                delay / 1000
+              )
+            }s...`
           );
-
 
           setTimeout(
             () => {
+
               connect(
                 sessionId
               ).catch(
                 (err) => {
+
                   console.error(
                     `Reconnect failed (${sessionId}):`,
                     err?.message ||
@@ -982,6 +1089,7 @@ async function createConnection(
                   );
                 }
               );
+
             },
             delay
           );
@@ -991,7 +1099,7 @@ async function createConnection(
 
 
     /* =====================
-       CREDENTIALS
+       SAVE CREDENTIALS
     ===================== */
 
     conn.ev.on(
@@ -1012,12 +1120,15 @@ async function createConnection(
     conn.ev.on(
       "groups.update",
       async (updates) => {
+
         for (
           const update of updates
         ) {
+
           if (
             update.id
           ) {
+
             groupCache.delete(
               update.id
             );
@@ -1034,7 +1145,9 @@ async function createConnection(
     conn.ev.on(
       "messages.upsert",
       async (m) => {
+
         try {
+
           if (
             m.type &&
             m.type !== "notify"
@@ -1065,14 +1178,21 @@ async function createConnection(
             return;
           }
 
+
+          /* CACHE MESSAGE */
+
           if (
             msg.key?.id
           ) {
+
             msgCache.set(
               msg.key.id,
               msg.message
             );
           }
+
+
+          /* SERIALIZE */
 
           const message =
             await serialize(
@@ -1083,6 +1203,9 @@ async function createConnection(
           if (!message) {
             return;
           }
+
+
+          /* GROUP GUARDS */
 
           const blocked =
             await processGroupGuards(
@@ -1096,6 +1219,9 @@ async function createConnection(
             return;
           }
 
+
+          /* COMMAND HANDLER */
+
           await messageHandler(
             {
               message,
@@ -1104,13 +1230,19 @@ async function createConnection(
           );
 
         } catch (error) {
+
           console.error(
             `❌ Error processing message (${sessionId}):`,
             error?.message ||
               error
           );
 
+          /*
+           * Remote system log only
+           * for default session.
+           */
           try {
+
             const {
               systemLog,
             } =
@@ -1118,20 +1250,18 @@ async function createConnection(
                 "../utils/logGroup.js"
               );
 
-            /*
-             * Remote system log is
-             * kept for default bot only.
-             */
             if (
               sessionId ===
               DEFAULT_SESSION_ID
             ) {
+
               await systemLog(
                 "error",
                 "messages.upsert failed",
                 error
               );
             }
+
           } catch {}
         }
       }
@@ -1141,6 +1271,7 @@ async function createConnection(
     return conn;
 
   } catch (error) {
+
     console.error(
       `❌ Failed creating session ${sessionId}:`,
       error?.message ||
@@ -1152,6 +1283,7 @@ async function createConnection(
         sessionId
       ) === conn
     ) {
+
       connections.delete(
         sessionId
       );
@@ -1161,6 +1293,7 @@ async function createConnection(
       sessionId ===
       DEFAULT_SESSION_ID
     ) {
+
       setConnection(
         null
       );
@@ -1182,9 +1315,13 @@ async function createConnection(
 export function getConnection(
   sessionId = DEFAULT_SESSION_ID
 ) {
-  return connections.get(
-    sessionId
-  ) || null;
+
+  return (
+    connections.get(
+      sessionId
+    ) ||
+    null
+  );
 }
 
 
@@ -1193,6 +1330,7 @@ export function getConnection(
 ========================= */
 
 export function getConnections() {
+
   return new Map(
     connections
   );
@@ -1200,14 +1338,17 @@ export function getConnections() {
 
 
 /* =========================
-   DISCONNECT ONE SESSION
+   DISCONNECT SESSION
 ========================= */
 
 export async function disconnectSession(
   sessionId
 ) {
+
   const normalized =
-    String(sessionId || "").trim();
+    String(
+      sessionId || ""
+    ).trim();
 
   if (!normalized) {
     return false;
@@ -1222,33 +1363,26 @@ export async function disconnectSession(
     return false;
   }
 
+  /*
+   * Prevent automatic reconnect
+   * after manual disconnect.
+   */
+  manualDisconnects.add(
+    normalized
+  );
+
   try {
+
     await conn.end?.(
       undefined
     );
+
   } catch {}
 
-  connections.delete(
-    normalized
-  );
-
-  pairingInfo.delete(
-    normalized
-  );
-
-  reconnectAttempts.delete(
-    normalized
-  );
-
-  if (
-    normalized ===
-    DEFAULT_SESSION_ID
-  ) {
-    setConnection(
-      null
-    );
-  }
-
+  /*
+   * The connection.update close
+   * handler will finish cleanup.
+   */
   return true;
 }
 
