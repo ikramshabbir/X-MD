@@ -1,5 +1,5 @@
 /**
- * Anti-spam / anti-link helpers + mute checks
+ * Anti-spam / anti-link / status mention helpers + mute checks
  */
 
 import { normalizeNumber } from "./access.js";
@@ -19,56 +19,198 @@ export function extractLinks(text) {
 /**
  * Returns true if this message should be treated as spam
  */
-export function checkSpam(senderKey, limit = 5, windowMs = 8000) {
+export function checkSpam(
+  senderKey,
+  limit = 5,
+  windowMs = 8000
+) {
   const now = Date.now();
-  let arr = spamBuckets.get(senderKey) || [];
-  arr = arr.filter((t) => now - t < windowMs);
+
+  let arr =
+    spamBuckets.get(senderKey) || [];
+
+  arr = arr.filter(
+    (t) => now - t < windowMs
+  );
+
   arr.push(now);
-  spamBuckets.set(senderKey, arr);
+
+  spamBuckets.set(
+    senderKey,
+    arr
+  );
+
   return arr.length > limit;
 }
 
-export function isUserMuted(settings, message) {
-  const muted = settings.muted || [];
+/**
+ * Detect WhatsApp Status Mention messages.
+ */
+export function isStatusMention(message) {
+  if (!message) return false;
+
+  const msg =
+    message.message ||
+    message.raw?.message ||
+    message.key?.message;
+
+  if (!msg) return false;
+
+  return !!(
+    msg.statusMentionMessage ||
+    msg.statusMentionMessageV2
+  );
+}
+
+export function isUserMuted(
+  settings,
+  message
+) {
+  const muted =
+    settings.muted || [];
+
   if (!muted.length) return false;
+
   const candidates = [
-    normalizeNumber(message.sender),
-    normalizeNumber(message.participant),
-    normalizeNumber(message.participantAlt),
+    normalizeNumber(
+      message.sender
+    ),
+    normalizeNumber(
+      message.participant
+    ),
+    normalizeNumber(
+      message.participantAlt
+    ),
   ].filter(Boolean);
-  return muted.some((m) => candidates.includes(normalizeNumber(m)));
+
+  return muted.some(
+    (m) =>
+      candidates.includes(
+        normalizeNumber(m)
+      )
+  );
 }
 
-export async function shouldBlockGroupMessage(message, conn) {
-  if (!message?.isGroup) return { block: false };
-
-  const settings = await getGroupSettings(message.from);
-
-  if (isUserMuted(settings, message)) {
-    return { block: true, reason: "MUTED", settings, deleteMsg: true };
+export async function shouldBlockGroupMessage(
+  message,
+  conn
+) {
+  if (!message?.isGroup) {
+    return { block: false };
   }
 
-  if (settings.antispam && !message.key?.fromMe) {
-    const key = `${message.from}:${normalizeNumber(message.sender) || message.sender}`;
-    if (checkSpam(key, settings.antispamLimit, settings.antispamWindowMs)) {
-      return { block: true, reason: "ANTISPAM", settings, deleteMsg: true };
+  const settings =
+    await getGroupSettings(
+      message.from
+    );
+
+  /*
+   * Mute
+   */
+  if (
+    isUserMuted(
+      settings,
+      message
+    )
+  ) {
+    return {
+      block: true,
+      reason: "MUTED",
+      settings,
+      deleteMsg: true,
+    };
+  }
+
+  /*
+   * Status Mention
+   */
+  if (
+    isStatusMention(message) &&
+    !message.key?.fromMe
+  ) {
+    return {
+      block: true,
+      reason: "STATUS_MENTION",
+      settings,
+      deleteMsg: true,
+    };
+  }
+
+  /*
+   * Anti-spam
+   */
+  if (
+    settings.antispam &&
+    !message.key?.fromMe
+  ) {
+    const key = `${
+      message.from
+    }:${
+      normalizeNumber(
+        message.sender
+      ) ||
+      message.sender
+    }`;
+
+    if (
+      checkSpam(
+        key,
+        settings.antispamLimit,
+        settings.antispamWindowMs
+      )
+    ) {
+      return {
+        block: true,
+        reason: "ANTISPAM",
+        settings,
+        deleteMsg: true,
+      };
     }
   }
 
-  if (settings.antilink && message.body && !message.key?.fromMe) {
-    const links = extractLinks(message.body);
-    // Allow commands that are just the bot prefix + word without raw links... still block if URL present
+  /*
+   * Anti-link
+   */
+  if (
+    settings.antilink &&
+    message.body &&
+    !message.key?.fromMe
+  ) {
+    const links =
+      extractLinks(
+        message.body
+      );
+
     if (links.length) {
-      return { block: true, reason: "ANTILINK", settings, deleteMsg: true };
+      return {
+        block: true,
+        reason: "ANTILINK",
+        settings,
+        deleteMsg: true,
+      };
     }
   }
 
-  return { block: false, settings };
+  return {
+    block: false,
+    settings,
+  };
 }
 
-export async function tryDeleteMessage(conn, message) {
+/**
+ * Delete a message if possible.
+ */
+export async function tryDeleteMessage(
+  conn,
+  message
+) {
   try {
-    await conn.sendMessage(message.from, { delete: message.key });
+    await conn.sendMessage(
+      message.from,
+      {
+        delete: message.key,
+      }
+    );
   } catch {
     /* may lack admin */
   }
