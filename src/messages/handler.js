@@ -1,22 +1,19 @@
 /**
- * Message Handler — ACL, flags, policy, audit, metrics
- * + Deep Multilingual Context-based Auto Reaction
- *
- * Languages:
- * - Urdu
- * - Roman Urdu
- * - English
- * - Arabic
+ * X-ANSARI v4.0.0
+ * Message Handler
  *
  * Features:
- * - One message = exactly one reaction
- * - Meaning/context based reactions
- * - Arabic is also analyzed by emotion engine
- * - Food / Nature / Animals / Sports / Technology / Objects
- * - Bot's own messages ignored
- * - Owner messages ignored
+ * - Reliable command detection
+ * - Trimmed command processing
+ * - ACL / flags / policy
+ * - Group permissions
+ * - Audit / metrics
+ * - Deep multilingual auto reaction
+ * - Urdu / Roman Urdu / English / Arabic
+ * - Exactly one reaction
  * - Commands ignored by AutoReact
- * - Existing ACL / flags / policy / audit / metrics preserved
+ * - Owner messages ignored
+ * - Bot messages ignored
  */
 
 import { findCommand } from "../plugins.js";
@@ -72,8 +69,27 @@ const AUTOREACT_KEY = "autoreact";
 
 
 /* =========================================================
- * RANDOM
+ * SAFE HELPERS
  * ========================================================= */
+
+function safeString(value = "") {
+  try {
+    return String(value ?? "");
+  } catch {
+    return "";
+  }
+}
+
+
+function normalizeText(text = "") {
+  return safeString(text)
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 
 function randomItem(items = []) {
   if (!Array.isArray(items) || !items.length) {
@@ -87,26 +103,11 @@ function randomItem(items = []) {
 
 
 /* =========================================================
- * NORMALIZE
- * ========================================================= */
-
-function normalizeReactionText(text = "") {
-  return String(text)
-    .toLowerCase()
-    .normalize("NFKC")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-
-/* =========================================================
- * OWNER CHECK
+ * OWNER
  * ========================================================= */
 
 function normalizeNumber(number = "") {
-  return String(number)
-    .replace(/[^0-9]/g, "");
+  return safeString(number).replace(/[^0-9]/g, "");
 }
 
 
@@ -122,106 +123,27 @@ function isOwnerMessage(message) {
     return false;
   }
 
-  const sender = normalizeNumber(
-    message?.sender ||
-    message?.participant ||
-    message?.key?.participant ||
-    ""
-  );
+  const possibleSenders = [
+    message?.sender,
+    message?.participant,
+    message?.key?.participant,
+    message?.key?.remoteJid,
+  ];
 
-  return Boolean(
-    sender &&
-    owner &&
-    sender === owner
-  );
-}
+  return possibleSenders.some((value) => {
 
+    const sender =
+      normalizeNumber(value);
 
-/* =========================================================
- * LANGUAGE DATA
- * ========================================================= */
-
-const URDU_LETTERS =
-  /[ٹڈڑںھہۀےژچگپڤ]/g;
-
-const URDU_WORDS = [
-  "ہے","ہیں","میں","تم","آپ","نہیں","کیوں","کیسے",
-  "کہاں","مجھ","تمہیں","مجھے","ہمیں","کرنا","کرتا",
-  "کرتی","کرتے","گیا","گئی","گئے","تھا","تھی","تھے",
-  "ہو","ہوگا","ہوگی","ہوں","نے","کو","سے","پر","کا",
-  "کی","کے","یہ","وہ","اور","لیے","لئے","رہا","رہی",
-  "رہے","چاہیے","چاہتا","چاہتی","سکتا","سکتی","کر",
-  "کیا","کبھی","بہت","میرا","میری","میرے","تمہارا",
-  "تمہاری","تمہارے"
-];
-
-
-const ARABIC_WORDS = [
-  "هذا","هذه","ذلك","تلك","الذي","التي","أنا","أنت",
-  "نحن","هو","هي","هم","كيف","لماذا","ماذا","متى",
-  "أين","الحمد","الله","اللهم","السلام","عليكم",
-  "صلى","عليه","وسلم","شكرا","أحب","حب","جميل",
-  "جميلة","مرحبا","نعم","لا","إن","شاء","ماشاءالله",
-  "سبحان","الحمدلله","بسم","الرحمن","رحيم","دعاء",
-  "آمين","حزين","حزينة","سعيد","سعيدة","غاضب",
-  "غاضبة","خائف","خائفة","أحبك","اشتقت"
-];
-
-
-function countMatches(text, regex) {
-  return (text.match(regex) || []).length;
-}
-
-
-function detectReactionLanguage(text) {
-
-  const msg = normalizeReactionText(text);
-
-  const urduLetters = countMatches(
-    msg,
-    URDU_LETTERS
-  );
-
-  const urduWords = URDU_WORDS.filter(
-    word => msg.includes(word)
-  ).length;
-
-  const arabicWords = ARABIC_WORDS.filter(
-    word => msg.includes(word)
-  ).length;
-
-  const arabicScript = countMatches(
-    msg,
-    /[\u0600-\u06FF]/g
-  );
-
-  const englishLetters = countMatches(
-    msg,
-    /[a-z]/g
-  );
-
-  if (
-    urduLetters >= 1 ||
-    urduWords >= 1
-  ) {
-    return "urdu";
-  }
-
-  if (
-    arabicWords >= 1 ||
-    (
-      arabicScript >= 3 &&
-      englishLetters < arabicScript
-    )
-  ) {
-    return "arabic";
-  }
-
-  if (englishLetters >= 2) {
-    return "english";
-  }
-
-  return "mixed";
+    return (
+      sender &&
+      (
+        sender === owner ||
+        sender.endsWith(owner) ||
+        owner.endsWith(sender)
+      )
+    );
+  });
 }
 
 
@@ -229,764 +151,1122 @@ function detectReactionLanguage(text) {
  * REACTION RULES
  * ========================================================= */
 
-const DEEP_REACTION_RULES = [
+const REACTION_RULES = [
 
   {
-    name: "humor",
-    priority: 100,
-    reactions: ["😂","🤣","😭","💀"],
-    keywords: [
-      "haha","hahaha","hahahaha","hehe","hehehe",
-      "lol","lmao","lmfao","rofl","funny","hilarious",
-      "joke","joking","meme","comedy","laugh",
-      "mazak","mazaq","hansi","hasna","hansna",
-      "maza aa gaya","kya joke hai",
-      "مزاح","مزاحیہ","مذاق","ہنسی","ہنسنا",
-      "لطیفہ"
-    ]
-  },
-
-  {
-    name: "sadness",
-    priority: 98,
-    reactions: ["😢","😭","🥺","🥀"],
-    keywords: [
-      "sad","sadness","cry","crying","tears","lonely",
-      "alone","depressed","upset","unhappy","miss you",
-      "missing you","miss someone","i miss","feel sad",
-      "feeling sad",
-      "dukhi","dukh","dard","udaas","afsos","rona",
-      "ro raha","ro rahi","tanha","tanhai","akela",
-      "akeli","yaad aa rahi","yaad aa raha",
-      "اداس","دکھی","دکھ","درد","افسوس","رونا",
-      "رو رہا","رو رہی","تنہا","تنہائی","اکیلا",
-      "اکیلی","آنسو","یاد آ رہی","یاد آ رہا",
-      "حزين","حزينة","حزن","بكاء","دموع",
-      "اشتقت"
+    name: "heartbreak",
+    priority: 110,
+    reactions: ["💔", "🥀", "😭", "🥺"],
+    words: [
+      "heartbreak",
+      "broken heart",
+      "breakup",
+      "break up",
+      "betrayal",
+      "betrayed",
+      "cheated",
+      "bewafa",
+      "bewafai",
+      "dhoka",
+      "dhokha",
+      "judai",
+      "dil toot",
+      "dil tut",
+      "dil toot gaya",
+      "dil tut gaya",
+      "rishta toot gaya",
+      "دل ٹوٹ",
+      "دل ٹوٹ گیا",
+      "بے وفا",
+      "بے وفائی",
+      "دھوکہ",
+      "جدائی"
     ]
   },
 
   {
     name: "love",
-    priority: 97,
-    reactions: ["❤️","🥰","😍","💕"],
-    keywords: [
-      "i love you","love you","true love","my love",
-      "love","loving","romantic","romance","beloved",
-      "darling","sweetheart","my heart",
-      "mohabbat","mohabbat hai","pyar","pyaar","ishq",
-      "ashiq","aashiq","chahat","meri jaan","jaan",
-      "jaanam","dilbar","mehboob","mehbooba",
-      "محبت","پیار","عشق","چاہت","میری جان","جان",
-      "جانم","دلبر","محبوب","محبوبہ",
-      "أحبك","أحب","حب"
+    priority: 108,
+    reactions: ["❤️", "🥰", "😍", "💕"],
+    words: [
+      "i love you",
+      "love you",
+      "true love",
+      "my love",
+      "love",
+      "loving",
+      "romantic",
+      "romance",
+      "beloved",
+      "darling",
+      "sweetheart",
+      "my heart",
+      "mohabbat",
+      "mohabbat hai",
+      "pyar",
+      "pyaar",
+      "ishq",
+      "ashiq",
+      "aashiq",
+      "chahat",
+      "meri jaan",
+      "jaanam",
+      "dilbar",
+      "mehboob",
+      "محبت",
+      "پیار",
+      "عشق",
+      "چاہت",
+      "میری جان",
+      "جانم",
+      "دلبر",
+      "محبوب",
+      "أحبك",
+      "أحب",
+      "حب"
     ]
   },
 
   {
-    name: "flirting",
-    priority: 96,
-    reactions: ["😏","😉","🫣","🥰"],
-    keywords: [
-      "flirt","flirting","handsome","beautiful","sexy",
-      "hot","crush","date me","marry me",
-      "you look good","looking beautiful",
-      "looking handsome",
-      "shadi kar lo","shaadi kar lo",
-      "tum bohat pyare","tum bohat pyari",
-      "tum cute ho","kya ada hai","kya baat hai",
-      "کتنے پیارے","کتنی پیاری","خوبصورت ہو",
-      "شادی کر لو","کیا ادا ہے","کیا بات ہے"
+    name: "sadness",
+    priority: 107,
+    reactions: ["😢", "😭", "🥺", "🥀"],
+    words: [
+      "sad",
+      "sadness",
+      "cry",
+      "crying",
+      "tears",
+      "lonely",
+      "alone",
+      "depressed",
+      "upset",
+      "unhappy",
+      "miss you",
+      "missing you",
+      "i miss",
+      "feel sad",
+      "feeling sad",
+      "dukhi",
+      "dukh",
+      "dard",
+      "udaas",
+      "afsos",
+      "rona",
+      "ro raha",
+      "ro rahi",
+      "tanha",
+      "tanhai",
+      "akela",
+      "akeli",
+      "yaad aa rahi",
+      "yaad aa raha",
+      "اداس",
+      "دکھی",
+      "دکھ",
+      "درد",
+      "افسوس",
+      "رونا",
+      "رو رہا",
+      "رو رہی",
+      "تنہا",
+      "تنہائی",
+      "اکیلا",
+      "اکیلی",
+      "آنسو",
+      "حزين",
+      "حزينة",
+      "حزن",
+      "بكاء",
+      "دموع",
+      "اشتقت"
+    ]
+  },
+
+  {
+    name: "humor",
+    priority: 106,
+    reactions: ["😂", "🤣", "😭", "💀"],
+    words: [
+      "haha",
+      "hahaha",
+      "hahahaha",
+      "hehe",
+      "hehehe",
+      "lol",
+      "lmao",
+      "lmfao",
+      "rofl",
+      "funny",
+      "hilarious",
+      "joke",
+      "joking",
+      "meme",
+      "comedy",
+      "laugh",
+      "mazak",
+      "mazaq",
+      "hansi",
+      "hasna",
+      "hansna",
+      "maza aa gaya",
+      "kya joke hai",
+      "مزاح",
+      "مزاحیہ",
+      "مذاق",
+      "ہنسی",
+      "ہنسنا",
+      "لطیفہ"
     ]
   },
 
   {
     name: "anger",
-    priority: 95,
-    reactions: ["😡","🤬","😤","💢"],
-    keywords: [
-      "angry","anger","furious","mad","hate",
-      "hateful","pissed","annoyed","shut up","idiot",
+    priority: 105,
+    reactions: ["😡", "🤬", "😤", "💢"],
+    words: [
+      "angry",
+      "anger",
+      "furious",
+      "mad",
+      "hate",
+      "hateful",
+      "pissed",
+      "annoyed",
+      "shut up",
+      "idiot",
       "stupid",
-      "gussa","ghussa","naraz","naraaz","nafrat",
-      "ghussa aa raha","bohat gussa","dimagh kharab",
-      "غصہ","غصے","ناراض","نفرت","غصہ آ رہا",
-      "بہت غصہ","دماغ خراب",
-      "غاضب","غاضبة","غضب","كره"
+      "gussa",
+      "ghussa",
+      "naraz",
+      "naraaz",
+      "nafrat",
+      "ghussa aa raha",
+      "bohat gussa",
+      "dimagh kharab",
+      "غصہ",
+      "غصے",
+      "ناراض",
+      "نفرت",
+      "غصہ آ رہا",
+      "بہت غصہ",
+      "دماغ خراب",
+      "غاضب",
+      "غاضبة",
+      "غضب",
+      "كره"
     ]
   },
 
   {
     name: "fear",
-    priority: 94,
-    reactions: ["😱","😨","😰","🥶"],
-    keywords: [
-      "fear","scared","afraid","terrified","danger",
-      "dangerous","horror","terrifying","help me",
+    priority: 104,
+    reactions: ["😱", "😨", "😰", "🥶"],
+    words: [
+      "fear",
+      "scared",
+      "afraid",
+      "terrified",
+      "danger",
+      "dangerous",
+      "horror",
+      "terrifying",
+      "help me",
       "save me",
-      "dar","darr","khauf","darna","dara hua",
-      "bohat dar","khatra",
-      "ڈر","خوف","ڈرا ہوا","بہت ڈر","خطرہ",
+      "dar",
+      "darr",
+      "khauf",
+      "darna",
+      "dara hua",
+      "bohat dar",
+      "khatra",
+      "ڈر",
+      "خوف",
+      "ڈرا ہوا",
+      "بہت ڈر",
+      "خطرہ",
       "خوفناک",
-      "خائف","خائفة","خوف"
+      "خائف",
+      "خائفة"
     ]
   },
 
   {
     name: "surprise",
-    priority: 93,
-    reactions: ["😮","😲","🤯","😳"],
-    keywords: [
-      "wow","omg","oh my god","really","unbelievable",
-      "unexpected","surprise","shocking","shocked",
-      "no way","what","seriously",
-      "hairan","hairani","yaqeen nahi","sach mein",
-      "kya","aisa kaise",
-      "حیران","حیرت","حیران کن","یقین نہیں",
-      "سچ میں","ایسا کیسے","اوہ",
-      "حقا","مستحيل","مفاجأة"
+    priority: 103,
+    reactions: ["😮", "😲", "🤯", "😳"],
+    words: [
+      "wow",
+      "omg",
+      "oh my god",
+      "really",
+      "unbelievable",
+      "unexpected",
+      "surprise",
+      "shocking",
+      "shocked",
+      "no way",
+      "seriously",
+      "hairan",
+      "hairani",
+      "yaqeen nahi",
+      "sach mein",
+      "aisa kaise",
+      "حیران",
+      "حیرت",
+      "یقین نہیں",
+      "سچ میں",
+      "ایسا کیسے",
+      "حقا",
+      "مستحيل",
+      "مفاجأة"
+    ]
+  },
+
+  {
+    name: "flirting",
+    priority: 102,
+    reactions: ["😏", "😉", "🫣", "🥰"],
+    words: [
+      "flirt",
+      "flirting",
+      "handsome",
+      "beautiful",
+      "sexy",
+      "hot",
+      "crush",
+      "date me",
+      "marry me",
+      "you look good",
+      "looking beautiful",
+      "looking handsome",
+      "shadi kar lo",
+      "shaadi kar lo",
+      "tum bohat pyare",
+      "tum bohat pyari",
+      "tum cute ho",
+      "kya ada hai",
+      "کتنے پیارے",
+      "کتنی پیاری",
+      "خوبصورت ہو",
+      "شادی کر لو",
+      "کیا ادا ہے"
     ]
   },
 
   {
     name: "touched",
-    priority: 92,
-    reactions: ["🥹","🫶","❤️","🥺"],
-    keywords: [
-      "touched","emotional","you touched my heart",
-      "touching","heart touching","so emotional",
+    priority: 101,
+    reactions: ["🥹", "🫶", "❤️", "🥺"],
+    words: [
+      "touched",
+      "emotional",
+      "touching",
+      "heart touching",
+      "so emotional",
       "made me emotional",
-      "dil ko laga","dil choo gaya",
-      "dil ko chhoo gaya","jazbati","jazbaat",
+      "dil ko laga",
+      "dil choo gaya",
+      "dil ko chhoo gaya",
+      "jazbati",
+      "jazbaat",
       "dil bhar aya",
-      "دل کو لگا","دل چھو گیا","دل کو چھو گیا",
-      "جذباتی","جذبات","دل بھر آیا"
+      "دل کو لگا",
+      "دل چھو گیا",
+      "دل کو چھو گیا",
+      "جذباتی",
+      "جذبات",
+      "دل بھر آیا"
+    ]
+  },
+
+  {
+    name: "praise",
+    priority: 100,
+    reactions: ["👏", "🙌", "🔥", "💯"],
+    words: [
+      "great",
+      "excellent",
+      "amazing",
+      "awesome",
+      "brilliant",
+      "perfect",
+      "beautiful work",
+      "good job",
+      "well played",
+      "well done",
+      "nice work",
+      "respect",
+      "zabardast",
+      "zabardast kaam",
+      "kamal",
+      "kamaal",
+      "shandar",
+      "lajawab",
+      "wah",
+      "waah",
+      "bohat khoob",
+      "kya baat",
+      "زبردست",
+      "کمال",
+      "شاندار",
+      "لاجواب",
+      "واہ",
+      "بہت خوب",
+      "رائع",
+      "ممتاز",
+      "أحسنت"
     ]
   },
 
   {
     name: "confidence",
-    priority: 91,
-    reactions: ["😎","🔥","👑","💯"],
-    keywords: [
-      "confidence","confident","boss","king","queen",
-      "legend","i can","i will","strong","power",
-      "powerful","fearless","attitude","apna time",
-      "main kar sakta","main kar sakti",
+    priority: 99,
+    reactions: ["😎", "🔥", "👑", "💯"],
+    words: [
+      "confidence",
+      "confident",
+      "boss",
+      "king",
+      "queen",
+      "legend",
+      "strong",
+      "power",
+      "powerful",
+      "fearless",
+      "attitude",
+      "apna time",
+      "main kar sakta",
+      "main kar sakti",
       "mujhe pata hai",
-      "بادشاہ","ملکہ","اعتماد","طاقت","مضبوط",
-      "میں کر سکتا","میں کر سکتی"
+      "بادشاہ",
+      "ملکہ",
+      "اعتماد",
+      "طاقت",
+      "مضبوط"
     ]
   },
 
   {
     name: "curiosity",
-    priority: 90,
-    reactions: ["🤔","🧐","👀","❓"],
-    keywords: [
-      "why","how","what","where","when","who","which",
-      "really","tell me","explain","curious","wonder",
-      "kyun","kyon","kaise","kahan","kab","kon","kaun",
-      "kya","batao","samjhao",
-      "کیوں","کیسے","کہاں","کب","کون","کیا",
-      "بتاؤ","سمجھاؤ",
-      "لماذا","كيف","ماذا","أين","متى"
+    priority: 98,
+    reactions: ["🤔", "🧐", "👀", "❓"],
+    words: [
+      "why",
+      "how",
+      "what",
+      "where",
+      "when",
+      "who",
+      "which",
+      "tell me",
+      "explain",
+      "curious",
+      "wonder",
+      "kyun",
+      "kyon",
+      "kaise",
+      "kahan",
+      "kab",
+      "kon",
+      "kaun",
+      "kya",
+      "batao",
+      "samjhao",
+      "کیوں",
+      "کیسے",
+      "کہاں",
+      "کب",
+      "کون",
+      "کیا",
+      "بتاؤ",
+      "سمجھاؤ",
+      "لماذا",
+      "كيف",
+      "ماذا",
+      "أين",
+      "متى"
     ]
   },
 
   {
     name: "annoyance",
-    priority: 89,
-    reactions: ["🙄","😒","😑","😤"],
-    keywords: [
-      "annoying","annoyed","irritating","irritated",
-      "ugh","whatever","seriously again","fed up",
-      "tang","tang aa gaya","pareshan","jhanjhat",
-      "bakwas","bas karo",
-      "تنگ","تنگ آ گیا","پریشان","جھنجھٹ","بکواس",
+    priority: 97,
+    reactions: ["🙄", "😒", "😑", "😤"],
+    words: [
+      "annoying",
+      "annoyed",
+      "irritating",
+      "irritated",
+      "ugh",
+      "whatever",
+      "fed up",
+      "tang",
+      "tang aa gaya",
+      "pareshan",
+      "jhanjhat",
+      "bakwas",
+      "bas karo",
+      "تنگ",
+      "تنگ آ گیا",
+      "پریشان",
+      "جھنجھٹ",
+      "بکواس",
       "بس کرو"
     ]
   },
 
   {
     name: "peace",
-    priority: 88,
-    reactions: ["😌","🫶","🤍","🌿"],
-    keywords: [
-      "peace","peaceful","calm","relax","relaxed",
-      "peace of mind","finally calm","serenity",
-      "sukoon","sukoon hai","aram","aaraam",
-      "dil ko sukoon","itminan",
-      "سکون","سکون ہے","آرام","دل کو سکون","اطمینان",
-      "سلام","طمأنينة"
+    priority: 96,
+    reactions: ["😌", "🫶", "🤍", "🌿"],
+    words: [
+      "peace",
+      "peaceful",
+      "calm",
+      "relax",
+      "relaxed",
+      "peace of mind",
+      "serenity",
+      "sukoon",
+      "sukoon hai",
+      "aram",
+      "aaraam",
+      "dil ko sukoon",
+      "itminan",
+      "سکون",
+      "سکون ہے",
+      "آرام",
+      "دل کو سکون",
+      "اطمینان",
+      "طمأنينة"
     ]
   },
 
   {
     name: "begging",
-    priority: 87,
-    reactions: ["🥺","🥹","🙏","🫶"],
-    keywords: [
-      "please","please help","please bro","please yaar",
-      "beg","begging","i request","kindly","plz",
-      "meri request","meharbani","khuda ke liye",
-      "allah ke waste","madad karo",
-      "براہ کرم","مہربانی","خدا کے لیے",
-      "اللہ کے واسطے","مدد کرو","منت",
-      "من فضلك","أرجوك"
+    priority: 95,
+    reactions: ["🥺", "🥹", "🙏", "🫶"],
+    words: [
+      "please",
+      "please help",
+      "please bro",
+      "please yaar",
+      "beg",
+      "begging",
+      "i request",
+      "kindly",
+      "plz",
+      "meri request",
+      "meharbani",
+      "khuda ke liye",
+      "allah ke waste",
+      "madad karo",
+      "براہ کرم",
+      "مہربانی",
+      "خدا کے لیے",
+      "اللہ کے واسطے",
+      "مدد کرو",
+      "منت",
+      "من فضلك",
+      "أرجوك"
     ]
   },
 
   {
     name: "agreement",
-    priority: 86,
-    reactions: ["🤝","👍","💯","✅"],
-    keywords: [
-      "agree","agreed","exactly","true","correct","right",
-      "absolutely","definitely","yes","of course","same",
-      "bilkul","sahi","theek","thik","durust","haan",
-      "ji haan","meri bhi yehi",
-      "بالکل","صحیح","ٹھیک","درست","ہاں","جی ہاں",
-      "صحيح","نعم"
-    ]
-  },
-
-  {
-    name: "praise",
-    priority: 85,
-    reactions: ["👏","🙌","🔥","💯"],
-    keywords: [
-      "great","excellent","amazing","awesome","brilliant",
-      "perfect","beautiful work","good job","well played",
-      "well done","nice work","respect",
-      "zabardast","zabardast kaam","kamal","kamaal",
-      "shandar","lajawab","wah","waah","bohat khoob",
-      "kya baat",
-      "زبردست","کمال","شاندار","لاجواب","واہ",
-      "بہت خوب","کیا بات","خوب",
-      "رائع","ممتاز","أحسنت"
+    priority: 94,
+    reactions: ["🤝", "👍", "💯", "✅"],
+    words: [
+      "agree",
+      "agreed",
+      "exactly",
+      "true",
+      "correct",
+      "right",
+      "absolutely",
+      "definitely",
+      "yes",
+      "of course",
+      "same",
+      "bilkul",
+      "sahi",
+      "theek",
+      "thik",
+      "durust",
+      "haan",
+      "ji haan",
+      "بالکل",
+      "صحیح",
+      "ٹھیک",
+      "درست",
+      "ہاں",
+      "جی ہاں",
+      "صحيح",
+      "نعم"
     ]
   },
 
   {
     name: "motivation",
-    priority: 84,
-    reactions: ["💪","🔥","🚀","👑"],
-    keywords: [
-      "motivation","motivational","never give up",
-      "keep going","stay strong","work hard",
-      "hard work","success","successful","winner",
-      "winning","believe in yourself","you can do it",
-      "don't give up","keep fighting","keep trying",
-      "zindagi","hosla","himmat","mehnat","kamiyabi",
-      "kamyabi","jeet","aage barho","haar mat mano",
-      "himmat na haro","koshish karo",
-      "زندگی","حوصلہ","ہمت","محنت","کامیابی","جیت",
-      "آگے بڑھو","ہار مت مانو","ہمت نہ ہارو",
+    priority: 93,
+    reactions: ["💪", "🔥", "🚀", "👑"],
+    words: [
+      "motivation",
+      "motivational",
+      "never give up",
+      "keep going",
+      "stay strong",
+      "work hard",
+      "hard work",
+      "success",
+      "successful",
+      "winner",
+      "winning",
+      "believe in yourself",
+      "you can do it",
+      "don't give up",
+      "keep fighting",
+      "keep trying",
+      "zindagi",
+      "hosla",
+      "himmat",
+      "mehnat",
+      "kamiyabi",
+      "kamyabi",
+      "jeet",
+      "aage barho",
+      "haar mat mano",
+      "himmat na haro",
+      "koshish karo",
+      "زندگی",
+      "حوصلہ",
+      "ہمت",
+      "محنت",
+      "کامیابی",
+      "جیت",
+      "آگے بڑھو",
+      "ہار مت مانو",
       "کوشش کرو"
     ]
   },
 
   {
     name: "respect",
-    priority: 83,
-    reactions: ["🫡","🙏","👑","❤️"],
-    keywords: [
-      "respect","respect bro","respect man","salute",
-      "honor","legend","hero","great man","sir","madam",
-      "izzat","ehtram","salam","salaam","ustad","badshah",
-      "عزت","احترام","سلام","استاد","بادشاہ",
-      "بہادری","لیجنڈ"
+    priority: 92,
+    reactions: ["🫡", "🙏", "👑", "❤️"],
+    words: [
+      "respect",
+      "respect bro",
+      "respect man",
+      "salute",
+      "honor",
+      "hero",
+      "great man",
+      "sir",
+      "madam",
+      "izzat",
+      "ehtram",
+      "salam",
+      "salaam",
+      "ustad",
+      "badshah",
+      "عزت",
+      "احترام",
+      "سلام",
+      "استاد",
+      "بادشاہ",
+      "بہادری"
     ]
   },
 
   {
     name: "celebration",
-    priority: 82,
-    reactions: ["🎉","🥳","🔥","🥂"],
-    keywords: [
-      "congratulations","congrats","congratulation",
-      "well done","proud of you","celebrate",
-      "celebration","party","birthday","happy birthday",
-      "wedding","married","marriage","engagement",
+    priority: 91,
+    reactions: ["🎉", "🥳", "🔥", "🎊"],
+    words: [
+      "congratulations",
+      "congrats",
+      "celebrate",
+      "celebration",
+      "party",
+      "birthday",
+      "happy birthday",
+      "wedding",
+      "married",
+      "marriage",
+      "engagement",
       "graduation",
-      "mubarak","mubarak ho","bohat bohat mubarak",
-      "bahut bahut mubarak","party hai","jashan",
-      "مبارک","مبارک ہو","بہت بہت مبارک","مبارکباد",
-      "سالگرہ","شادی","منگنی","جشن"
-    ]
-  },
-
-  {
-    name: "emotionalLaugh",
-    priority: 81,
-    reactions: ["😭","😂","💀","🤣"],
-    keywords: [
-      "i'm crying laughing","crying laughing",
-      "dead laughing","can't stop laughing",
-      "laughing so hard","too funny","dying laughing",
-      "hans hans ke","hansi nahi ruk rahi",
-      "hans hans kar","hans hans ke bura haal",
-      "ہنس ہنس کے","ہنسی نہیں رک رہی","ہنس ہنس کر"
-    ]
-  },
-
-  {
-    name: "savage",
-    priority: 80,
-    reactions: ["💀","😂","😭","😈"],
-    keywords: [
-      "savage","roast","roasted","destroyed","burned",
-      "what a roast","destroy","brutal","dead",
-      "beizzati","bezati","jalaa diya","jal gaya",
-      "dhulai","class laga di",
-      "بے عزتی","جلا دیا","جل گیا","دھلائی",
-      "کلاس لگا دی","ذلیل"
-    ]
-  },
-
-  {
-    name: "teasing",
-    priority: 79,
-    reactions: ["🤭","😏","😂","😉"],
-    keywords: [
-      "tease","teasing","just kidding","kidding",
-      "got you","prank","funny bro",
-      "chherna","cher raha","mazaq kar raha",
-      "mazaq kar rahi","tang karna",
-      "چھیڑنا","چھیڑ رہا","مذاق کر رہا",
-      "مذاق کر رہی","تنگ کرنا"
-    ]
-  },
-
-  {
-    name: "suspicious",
-    priority: 78,
-    reactions: ["👀","🤨","🧐","😏"],
-    keywords: [
-      "suspicious","sus","doubt","doubtful","really?",
-      "are you sure","something wrong","something fishy",
-      "i don't trust",
-      "shak","mujhe shak","yaqeen nahi","kuch garbar",
-      "doubt hai",
-      "شک","مجھے شک","یقین نہیں","کچھ گڑبڑ","شک ہے"
-    ]
-  },
-
-  {
-    name: "drama",
-    priority: 77,
-    reactions: ["🍿","👀","😂","😭"],
-    keywords: [
-      "drama","dramatic","fight","argument","beef",
-      "gossip","tea","what happened","then what",
-      "larai","larray","jhagra","tamasha","kya hua",
-      "phir kya hua",
-      "لڑائی","جھگڑا","تماشا","کیا ہوا","پھر کیا ہوا"
-    ]
-  },
-
-  {
-    name: "overwhelmed",
-    priority: 76,
-    reactions: ["🫠","😭","🥲","😩"],
-    keywords: [
-      "overwhelmed","too much","can't handle",
-      "i can't","exhausted","everything is too much",
-      "stress","stressed",
-      "bohat zyada","handle nahi ho raha","thak gaya",
-      "thak gayi","sab kuch mushkil","pressure","tension",
-      "بہت زیادہ","ہینڈل نہیں ہو رہا","تھک گیا",
-      "تھک گئی","سب کچھ مشکل","پریشر","ٹینشن"
-    ]
-  },
-
-  {
-    name: "tired",
-    priority: 75,
-    reactions: ["😴","🥱","😮‍💨","🫠"],
-    keywords: [
-      "tired","sleepy","sleep","exhausted","need sleep",
-      "so tired","no energy",
-      "thak","thaka hua","thaki hui","neend",
-      "sona hai","bohat thak gaya","bohat thak gayi",
-      "تھکا","تھکا ہوا","تھکی ہوئی","نیند","سونا ہے",
-      "بہت تھک گیا","بہت تھک گئی"
-    ]
-  },
-
-  {
-    name: "frustration",
-    priority: 74,
-    reactions: ["🤦","😩","😮‍💨","😤"],
-    keywords: [
-      "frustrated","frustration","failed","failure",
-      "not working","doesn't work","fed up",
-      "waste of time","why is this happening",
-      "pareshan","mayus","jhanjhat",
-      "kaam nahi kar raha","nahi ho raha",
-      "dimagh kharab","tang aa gaya",
-      "پریشان","مایوس","جھنجھٹ","کام نہیں کر رہا",
-      "نہیں ہو رہا","دماغ خراب","تنگ آ گیا"
-    ]
-  },
-
-  {
-    name: "disgust",
-    priority: 73,
-    reactions: ["🤢","🤮","😖","😷"],
-    keywords: [
-      "disgusting","disgust","gross","nasty","sick",
-      "vomit","dislike","ew","yuck",
-      "ghin","gandi","ganda","nafrat","ulti",
-      "gandi baat",
-      "گھن","گندی","گندا","نفرت","الٹی","گندی بات"
-    ]
-  },
-
-  {
-    name: "shockCold",
-    priority: 72,
-    reactions: ["🥶","😳","❄️","😱"],
-    keywords: [
-      "cold","freezing","frozen","ice cold","shock",
-      "shocked","speechless","damn","what the",
-      "sardi","thand","jam gaya","sunn",
-      "sunn reh gaya",
-      "سردی","ٹھنڈ","جم گیا","سن","سن رہ گیا"
-    ]
-  },
-
-  {
-    name: "innocent",
-    priority: 71,
-    reactions: ["😇","🥺","😌","🤍"],
-    keywords: [
-      "innocent","i didn't do anything","not me",
-      "who me","i am innocent","nothing happened",
-      "masoom","main masoom","maine kuch nahi kiya",
-      "mujhe kya pata",
-      "معصوم","میں معصوم","میں نے کچھ نہیں کیا",
-      "مجھے کیا پتا"
-    ]
-  },
-
-  {
-    name: "mischief",
-    priority: 70,
-    reactions: ["😈","😏","😂","🤭"],
-    keywords: [
-      "mischief","evil","naughty","trouble",
-      "troublemaker","watch me",
-      "shararat","shararti","badmashi","badmash",
-      "masti","fitrat",
-      "شرارت","شرارتی","بدمعاشی","بدمعاش","مستی","فطرت"
-    ]
-  },
-
-  {
-    name: "comfort",
-    priority: 69,
-    reactions: ["🤍","🫂","🫶","❤️"],
-    keywords: [
-      "comfort","take care","it's okay","it will be okay",
-      "don't worry","everything will be fine",
-      "i understand","stay safe",
-      "fikr mat karo","tension mat lo","sab theek hoga",
-      "main samajhta","main samajhti","khayal rakhna",
-      "فکر مت کرو","ٹینشن مت لو","سب ٹھیک ہوگا",
-      "میں سمجھتا","میں سمجھتی","خیال رکھنا"
-    ]
-  },
-
-  {
-    name: "support",
-    priority: 68,
-    reactions: ["🫂","❤️","🫶","🤝"],
-    keywords: [
-      "i am with you","i'm with you","with you",
-      "support","supporting you","you are not alone",
-      "we are with you","stand with you",
-      "main tumhare sath","hum tumhare sath",
-      "sath hoon","sath hain","main tumhare saath",
-      "hum tumhare saath",
-      "ہم تمہارے ساتھ","میں تمہارے ساتھ",
-      "اکیلے نہیں ہو","ساتھ ہوں","ساتھ ہیں"
-    ]
-  },
-
-  {
-    name: "gratitude",
-    priority: 67,
-    reactions: ["🙏","❤️","🤲","🫶"],
-    keywords: [
-      "thank you","thanks","thank","grateful",
-      "gratitude","thanks bro","thank you so much",
-      "many thanks",
-      "shukriya","bohat shukriya","dil se shukriya",
-      "meharbani",
-      "شکریہ","بہت شکریہ","دل سے شکریہ","مہربانی",
-      "شكرا"
+      "mubarak",
+      "mubarak ho",
+      "bohat bohat mubarak",
+      "bahut bahut mubarak",
+      "party hai",
+      "jashan",
+      "مبارک",
+      "مبارک ہو",
+      "بہت بہت مبارک",
+      "مبارکباد",
+      "سالگرہ",
+      "شادی",
+      "منگنی",
+      "جشن"
     ]
   },
 
   {
     name: "dua",
-    priority: 66,
-    reactions: ["🤲","❤️","🙏","🕊️"],
-    keywords: [
-      "dua","duaa","prayer","pray for me",
-      "pray for us","please pray","ameen","aameen",
-      "allah help","allah madad","mere liye dua",
+    priority: 90,
+    reactions: ["🤲", "❤️", "🙏", "🕊️"],
+    words: [
+      "dua",
+      "duaa",
+      "prayer",
+      "pray for me",
+      "pray for us",
+      "please pray",
+      "ameen",
+      "aameen",
+      "allah help",
+      "allah madad",
+      "mere liye dua",
       "hamare liye dua",
-      "دعا","دعائیں","دعا کریں","میرے لیے دعا",
-      "میرے لئے دعا","ہمارے لیے دعا","آمین",
-      "اللہ مدد","اللہ آسانی",
-      "دعاء","آمين","اللهم"
-    ]
-  },
-
-  {
-    name: "heartbreak",
-    priority: 105,
-    reactions: ["💔","🥀","😭","🥺"],
-    keywords: [
-      "heartbreak","broken heart","breakup","break up",
-      "betrayal","betrayed","cheated","cheating",
-      "relationship ended","she left","he left",
-      "bewafa","bewafai","dhoka","dhokha","judai",
-      "dil toot","dil tut","dil toot gaya","dil tut gaya",
-      "rishta toot gaya",
-      "دل ٹوٹ","دل توڑ","دل ٹوٹا","دل ٹوٹ گیا",
-      "دل ٹوٹ گیا ہے","بے وفائی","بے وفا","دھوکہ",
-      "جدائی","رشتہ ٹوٹ گیا"
-    ]
-  },
-
-  {
-    name: "loneliness",
-    priority: 65,
-    reactions: ["🥀","😔","💔","🫂"],
-    keywords: [
-      "loneliness","lonely","alone","nobody","no one",
-      "all alone","miss everyone",
-      "tanha","tanhai","akela","akeli","koi nahi",
-      "sab chale gaye",
-      "تنہا","تنہائی","اکیلا","اکیلی","کوئی نہیں",
-      "سب چلے گئے"
+      "دعا",
+      "دعائیں",
+      "دعا کریں",
+      "میرے لیے دعا",
+      "میرے لئے دعا",
+      "ہمارے لیے دعا",
+      "آمین",
+      "اللہ مدد",
+      "اللهم",
+      "دعاء"
     ]
   },
 
   {
     name: "success",
-    priority: 64,
-    reactions: ["🚀","🔥","💯","👑"],
-    keywords: [
-      "success","successful","achieved","goal achieved",
-      "made it","we did it","won","winner","winning",
-      "promotion","new job",
-      "kamyabi","kamiyabi","kamyaab","jeet gaya",
-      "jeet gayi","kar dikhaya","manzil","maqsad hasil",
-      "کامیابی","کامیاب","جیت گیا","جیت گئی",
-      "کر دکھایا","منزل","مقصد حاصل"
-    ]
-  },
-
-  {
-    name: "achievement",
-    priority: 63,
-    reactions: ["🏆","👑","🔥","🎉"],
-    keywords: [
-      "achievement","achieved","award","champion",
-      "record","milestone","first place","number one",
-      "topper",
-      "kamyaabi hasil","inaam","record bana",
-      "pehla number","first aya","first aayi",
-      "کامیابی حاصل","انعام","ریکارڈ بنا","پہلا نمبر",
-      "پہلی آئی"
-    ]
-  },
-
-  {
-    name: "deep",
-    priority: 60,
-    reactions: ["🥀","🖤","🤍","😔"],
-    keywords: [
-      "life","reality","truth of life","memories",
-      "memory","time","destiny","fate","silence",
-      "pain","deep","deep words","deep thought",
-      "life lesson","reality of life",
-      "zindagi","haqeeqat","yaadein","yaadain","waqt",
-      "qismat","khamoshi","dard","zindagi ki haqeeqat",
-      "gehri baat","gehri soch",
-      "زندگی","حقیقت","یادیں","وقت","قسمت",
-      "خاموشی","درد","زندگی کی حقیقت","گہری بات",
-      "گہری سوچ"
+    priority: 89,
+    reactions: ["🚀", "🔥", "💯", "👑"],
+    words: [
+      "success",
+      "successful",
+      "achieved",
+      "goal achieved",
+      "made it",
+      "we did it",
+      "won",
+      "winner",
+      "winning",
+      "promotion",
+      "new job",
+      "kamyabi",
+      "kamiyabi",
+      "kamyaab",
+      "jeet gaya",
+      "jeet gayi",
+      "kar dikhaya",
+      "manzil",
+      "maqsad hasil",
+      "کامیابی",
+      "کامیاب",
+      "جیت گیا",
+      "جیت گئی",
+      "کر دکھایا",
+      "منزل",
+      "مقصد حاصل"
     ]
   },
 
   {
     name: "food",
-    priority: 58,
-    reactions: ["🍔","🍕","🍟","😋"],
-    keywords: [
-      "food","eat","eating","hungry","breakfast","lunch",
-      "dinner","biryani","pizza","burger","cake","chocolate",
-      "ice cream","coffee","tea","chai","khana","bhook",
-      "nashta","dawat","بریانی","کھانا","بھوک","ناشتہ",
-      "پیزا","برگر","کیک","چائے","کافی",
-      "طعام","طعامي","جائع","جائعة"
+    priority: 80,
+    reactions: ["🍔", "🍕", "🍟", "😋"],
+    words: [
+      "food",
+      "eat",
+      "eating",
+      "hungry",
+      "breakfast",
+      "lunch",
+      "dinner",
+      "biryani",
+      "pizza",
+      "burger",
+      "cake",
+      "chocolate",
+      "ice cream",
+      "coffee",
+      "tea",
+      "chai",
+      "khana",
+      "bhook",
+      "nashta",
+      "dawat",
+      "بریانی",
+      "کھانا",
+      "بھوک",
+      "ناشتہ",
+      "پیزا",
+      "برگر",
+      "کیک",
+      "چائے",
+      "کافی",
+      "جائع"
     ]
   },
 
   {
     name: "nature",
-    priority: 57,
-    reactions: ["🌿","🌸","🌻","🌳"],
-    keywords: [
-      "nature","tree","trees","flower","flowers","garden",
-      "rain","rainy","sky","sun","moon","river","mountain",
-      "forest","green","beautiful nature",
-      "barish","baarish","phool","bagh","aasman",
-      "pahaar","darya",
-      "بارش","پھول","باغ","آسمان","پہاڑ","دریا",
-      "طبيعة","مطر","زهرة","حديقة","سماء","جبل"
+    priority: 79,
+    reactions: ["🌿", "🌸", "🌻", "🌳"],
+    words: [
+      "nature",
+      "tree",
+      "trees",
+      "flower",
+      "flowers",
+      "garden",
+      "rain",
+      "rainy",
+      "sky",
+      "sun",
+      "moon",
+      "river",
+      "mountain",
+      "forest",
+      "green",
+      "beautiful nature",
+      "barish",
+      "baarish",
+      "phool",
+      "bagh",
+      "aasman",
+      "pahaar",
+      "darya",
+      "بارش",
+      "پھول",
+      "باغ",
+      "آسمان",
+      "پہاڑ",
+      "دریا",
+      "طبيعة",
+      "مطر",
+      "زهرة",
+      "حديقة",
+      "سماء",
+      "جبل"
     ]
   },
 
   {
     name: "animals",
-    priority: 56,
-    reactions: ["🐶","🐱","🦋","🐼"],
-    keywords: [
-      "cat","cats","dog","dogs","puppy","kitten",
-      "bird","birds","horse","lion","tiger","rabbit",
-      "animal","animals","pet","parrot","fish",
-      "billi","kutta","kutti","parinda","ghora",
-      "sher","khargosh","janwar",
-      "بلی","کتا","پرندہ","گھوڑا","شیر","خرگوش",
-      "جانور","قط","كلب","حصان","أسد","أرنب"
+    priority: 78,
+    reactions: ["🐶", "🐱", "🦋", "🐼"],
+    words: [
+      "cat",
+      "cats",
+      "dog",
+      "dogs",
+      "puppy",
+      "kitten",
+      "bird",
+      "birds",
+      "horse",
+      "lion",
+      "tiger",
+      "rabbit",
+      "animal",
+      "animals",
+      "pet",
+      "parrot",
+      "fish",
+      "billi",
+      "kutta",
+      "kutti",
+      "parinda",
+      "ghora",
+      "sher",
+      "khargosh",
+      "janwar",
+      "بلی",
+      "کتا",
+      "پرندہ",
+      "گھوڑا",
+      "شیر",
+      "خرگوش",
+      "جانور",
+      "قط",
+      "كلب",
+      "حصان",
+      "أسد",
+      "أرنب"
     ]
   },
 
   {
     name: "sports",
-    priority: 55,
-    reactions: ["⚽","🏏","🏆","🔥"],
-    keywords: [
-      "football","soccer","cricket","match","goal",
-      "six","four","wicket","bat","bowling","bowler",
-      "batsman","championship","sports","game","win",
-      "jeet","team","player","stadium",
-      "فٹبال","کرکٹ","میچ","گول","وکٹ","بیٹ",
-      "بولنگ","کھیل","ٹیم",
-      "مباراة","كرة","رياضة","فوز"
+    priority: 77,
+    reactions: ["⚽", "🏏", "🏆", "🔥"],
+    words: [
+      "football",
+      "soccer",
+      "cricket",
+      "match",
+      "goal",
+      "six",
+      "four",
+      "wicket",
+      "bat",
+      "bowling",
+      "bowler",
+      "batsman",
+      "championship",
+      "sports",
+      "game",
+      "win",
+      "jeet",
+      "team",
+      "player",
+      "stadium",
+      "فٹبال",
+      "کرکٹ",
+      "میچ",
+      "گول",
+      "وکٹ",
+      "بیٹ",
+      "بولنگ",
+      "کھیل",
+      "ٹیم",
+      "مباراة",
+      "كرة",
+      "رياضة",
+      "فوز"
     ]
   },
 
   {
     name: "technology",
-    priority: 54,
-    reactions: ["📱","💻","🤖","⚡"],
-    keywords: [
-      "phone","mobile","iphone","android","computer",
-      "laptop","pc","technology","tech","software",
-      "app","application","internet","wifi","router",
-      "coding","code","programming","developer","bot",
-      "server","github","railway","database","api",
-      "موبائل","فون","کمپیوٹر","لیپ ٹاپ","ٹیکنالوجی",
-      "انٹرنیٹ","وائی فائی","کوڈ","پروگرامنگ"
+    priority: 76,
+    reactions: ["📱", "💻", "🤖", "⚡"],
+    words: [
+      "phone",
+      "mobile",
+      "iphone",
+      "android",
+      "computer",
+      "laptop",
+      "pc",
+      "technology",
+      "tech",
+      "software",
+      "app",
+      "application",
+      "internet",
+      "wifi",
+      "router",
+      "coding",
+      "code",
+      "programming",
+      "developer",
+      "bot",
+      "server",
+      "github",
+      "railway",
+      "database",
+      "api",
+      "موبائل",
+      "فون",
+      "کمپیوٹر",
+      "لیپ ٹاپ",
+      "ٹیکنالوجی",
+      "انٹرنیٹ",
+      "وائی فائی",
+      "کوڈ",
+      "پروگرامنگ"
     ]
   },
 
   {
     name: "travel",
-    priority: 53,
-    reactions: ["✈️","🚗","🌍","🗺️"],
-    keywords: [
-      "travel","trip","journey","flight","airport",
-      "plane","car","road","highway","tour","vacation",
-      "holiday","beach","city","country","visit",
-      "safar","musafir","jahaz","airport","gaari",
-      "road","tour","chutti","samandar",
-      "سفر","مسافر","جہاز","گاڑی","راستہ","چھٹی",
-      "سمندر","سياحة","سفر","طائرة"
-    ]
-  },
-
-  {
-    name: "gift",
-    priority: 52,
-    reactions: ["🎁","🎀","💝","🥰"],
-    keywords: [
-      "gift","present","surprise gift","birthday gift",
-      "present for you","gift for you",
-      "tohfa","tofa","hadia","hadiya",
-      "تحفہ","ہدیہ","هدية","هدية لك"
+    priority: 75,
+    reactions: ["✈️", "🚗", "🌍", "🗺️"],
+    words: [
+      "travel",
+      "trip",
+      "journey",
+      "flight",
+      "airport",
+      "plane",
+      "car",
+      "road",
+      "highway",
+      "tour",
+      "vacation",
+      "holiday",
+      "beach",
+      "city",
+      "country",
+      "visit",
+      "safar",
+      "musafir",
+      "jahaz",
+      "gaari",
+      "chutti",
+      "samandar",
+      "سفر",
+      "مسافر",
+      "جہاز",
+      "گاڑی",
+      "راستہ",
+      "چھٹی",
+      "سمندر",
+      "سياحة",
+      "طائرة"
     ]
   },
 
   {
     name: "music",
-    priority: 51,
-    reactions: ["🎵","🎶","🎧","🔥"],
-    keywords: [
-      "music","song","songs","singer","singing","lyrics",
-      "beat","dj","concert","playlist","listen",
-      "gana","gaana","geet","music sun",
-      "گانا","گیت","موسیقی","آواز",
-      "موسيقى","أغنية"
-    ]
-  },
-
-  {
-    name: "work",
-    priority: 50,
-    reactions: ["💼","💻","☕","💪"],
-    keywords: [
-      "work","office","job","meeting","business",
-      "project","deadline","boss","employee","salary",
-      "career","काम","kaam","nokri","naukri","office",
-      "business","project","deadline",
-      "کام","نوکری","دفتر","کاروبار","ملازمت"
+    priority: 74,
+    reactions: ["🎵", "🎶", "🎧", "🔥"],
+    words: [
+      "music",
+      "song",
+      "songs",
+      "singer",
+      "singing",
+      "lyrics",
+      "beat",
+      "dj",
+      "concert",
+      "playlist",
+      "listen",
+      "gana",
+      "gaana",
+      "geet",
+      "music sun",
+      "گانا",
+      "گیت",
+      "موسیقی",
+      "آواز",
+      "موسيقى",
+      "أغنية"
     ]
   },
 
   {
     name: "sleep",
-    priority: 49,
-    reactions: ["😴","🌙","🛌","💤"],
-    keywords: [
-      "good night","gn","sleep","sleeping","bed",
-      "going to sleep","sweet dreams","night",
-      "so jao","sona","neend","shab bakhair",
-      "شب بخیر","سونا","نیند",
-      "تصبح على خير","نوم"
+    priority: 73,
+    reactions: ["😴", "🌙", "🛌", "💤"],
+    words: [
+      "good night",
+      "gn",
+      "sleep",
+      "sleeping",
+      "bed",
+      "going to sleep",
+      "sweet dreams",
+      "night",
+      "so jao",
+      "sona",
+      "neend",
+      "shab bakhair",
+      "شب بخیر",
+      "سونا",
+      "نیند",
+      "تصبح على خير",
+      "نوم"
     ]
   },
 
   {
     name: "morning",
-    priority: 48,
-    reactions: ["🌅","☀️","😊","🌸"],
-    keywords: [
-      "good morning","gm","morning","subha","subah",
-      "sawere","صبح بخیر","صبح","صباح الخير"
+    priority: 72,
+    reactions: ["🌅", "☀️", "😊", "🌸"],
+    words: [
+      "good morning",
+      "gm",
+      "morning",
+      "subha",
+      "subah",
+      "sawere",
+      "صبح بخیر",
+      "صبح",
+      "صباح الخير"
     ]
   },
 
   {
     name: "weather",
-    priority: 47,
-    reactions: ["🌤️","🌧️","☀️","❄️"],
-    keywords: [
-      "weather","hot weather","cold weather","rain",
-      "rainy","sunny","cloudy","storm","wind",
-      "garmi","sardi","barish","hawa","badal",
-      "موسم","گرمی","سردی","بارش","ہوا","بادل"
+    priority: 71,
+    reactions: ["🌤️", "🌧️", "☀️", "❄️"],
+    words: [
+      "weather",
+      "hot weather",
+      "cold weather",
+      "rain",
+      "rainy",
+      "sunny",
+      "cloudy",
+      "storm",
+      "wind",
+      "garmi",
+      "sardi",
+      "barish",
+      "hawa",
+      "badal",
+      "موسم",
+      "گرمی",
+      "سردی",
+      "بارش",
+      "ہوا",
+      "بادل"
     ]
   }
+
 ];
+
+
+/* =========================================================
+ * SCORE
+ * ========================================================= */
+
+function scoreRule(text, rule) {
+
+  let score = 0;
+
+  for (const keyword of rule.words || []) {
+
+    const word =
+      normalizeText(keyword);
+
+    if (!word) {
+      continue;
+    }
+
+    if (text.includes(word)) {
+
+      if (word.length >= 10) {
+        score += 7;
+      }
+
+      else if (word.length >= 6) {
+        score += 5;
+      }
+
+      else if (word.length >= 4) {
+        score += 3;
+      }
+
+      else {
+        score += 2;
+      }
+    }
+  }
+
+  return score;
+}
 
 
 /* =========================================================
@@ -1006,7 +1286,7 @@ function applyDeepContext(text, scores) {
     text.includes("مجھے تم سے پیار") ||
     text.includes("أحبك")
   ) {
-    scores.love += 40;
+    scores.love += 50;
   }
 
 
@@ -1020,7 +1300,7 @@ function applyDeepContext(text, scores) {
     text.includes("دل ٹوٹ گیا") ||
     text.includes("دل ٹوٹ گیا ہے")
   ) {
-    scores.heartbreak += 45;
+    scores.heartbreak += 60;
   }
 
 
@@ -1036,7 +1316,7 @@ function applyDeepContext(text, scores) {
     text.includes("تم بہت یاد") ||
     text.includes("اشتقت")
   ) {
-    scores.sadness += 35;
+    scores.sadness += 45;
   }
 
 
@@ -1050,7 +1330,7 @@ function applyDeepContext(text, scores) {
     text.includes("میرے لیے دعا") ||
     text.includes("اللهم")
   ) {
-    scores.dua += 40;
+    scores.dua += 45;
   }
 
 
@@ -1066,147 +1346,16 @@ function applyDeepContext(text, scores) {
     text.includes("آگے بڑھتے رہو") ||
     text.includes("ہمت نہ ہارو")
   ) {
-    scores.motivation += 35;
+    scores.motivation += 45;
   }
 
 
   if (
-    /haha+|hehe+|lol|lmao|lmfao|rofl|🤣|😂/i.test(text)
+    /haha+|hehe+|lol|lmao|lmfao|rofl/i.test(text)
   ) {
-    scores.humor += 35;
+    scores.humor += 40;
   }
 
-
-  if (
-    (
-      /haha+|hehe+|lol|lmao|🤣|😂/i.test(text)
-    ) &&
-    (
-      text.includes("cry") ||
-      text.includes("😭") ||
-      text.includes("ro raha") ||
-      text.includes("ro rahi")
-    )
-  ) {
-    scores.emotionalLaugh += 40;
-  }
-
-
-  if (
-    text.includes("congratulations") ||
-    text.includes("congrats") ||
-    text.includes("mubarak ho") ||
-    text.includes("bohat bohat mubarak") ||
-    text.includes("بہت بہت مبارک") ||
-    text.includes("مبارک ہو")
-  ) {
-    scores.celebration += 40;
-  }
-
-
-  if (
-    text.includes("we did it") ||
-    text.includes("i made it") ||
-    text.includes("goal achieved") ||
-    text.includes("kar dikhaya") ||
-    text.includes("manzil mil") ||
-    text.includes("مقصد حاصل")
-  ) {
-    scores.success += 35;
-  }
-
-
-  if (
-    text.includes("well done") ||
-    text.includes("good job") ||
-    text.includes("beautiful work") ||
-    text.includes("bohat khoob") ||
-    text.includes("بہت خوب")
-  ) {
-    scores.praise += 30;
-  }
-
-
-  if (
-    text.includes("?") ||
-    text.includes("؟")
-  ) {
-    scores.curiosity =
-      (scores.curiosity || 0) + 12;
-  }
-
-
-  const sadSignals = [
-    "sad","cry","tears","lonely",
-    "dukhi","dard","udaas","tanhai",
-    "اداس","دکھی","درد","تنہائی","آنسو",
-    "حزين","حزن","بكاء","دموع"
-  ];
-
-  const sadCount =
-    sadSignals.filter(
-      x => text.includes(x)
-    ).length;
-
-  if (sadCount >= 2) {
-    scores.sadness += 25;
-  }
-
-
-  const loveSignals = [
-    "love","pyar","pyaar","mohabbat",
-    "ishq","chahat","محبت","پیار",
-    "عشق","چاہت","حب","أحب"
-  ];
-
-  const loveCount =
-    loveSignals.filter(
-      x => text.includes(x)
-    ).length;
-
-  if (loveCount >= 2) {
-    scores.love += 25;
-  }
-
-
-  const angerSignals = [
-    "angry","furious","mad","gussa",
-    "ghussa","nafrat","غصہ","نفرت",
-    "غاضب","غضب"
-  ];
-
-  const angerCount =
-    angerSignals.filter(
-      x => text.includes(x)
-    ).length;
-
-  if (angerCount >= 2) {
-    scores.anger += 20;
-  }
-
-
-  const positiveSignals = [
-    "amazing","awesome","excellent","great",
-    "zabardast","kamal","shandar",
-    "زبردست","کمال","شاندار"
-  ];
-
-  const positiveCount =
-    positiveSignals.filter(
-      x => text.includes(x)
-    ).length;
-
-  if (positiveCount >= 2) {
-    scores.praise += 20;
-  }
-}
-
-
-/* =========================================================
- * EMOJI CONTEXT
- * ========================================================= */
-
-function applyEmojiContext(text, scores) {
 
   if (
     /😂|🤣|😆|😅|😁|😄|😃|😀|😹/.test(text)
@@ -1239,7 +1388,7 @@ function applyEmojiContext(text, scores) {
   if (
     /😮|😲|🤯|😳|😱/.test(text)
   ) {
-    scores.surprise += 25;
+    scores.surprise += 30;
   }
 
 
@@ -1295,58 +1444,122 @@ function applyEmojiContext(text, scores) {
   if (
     /🎁|🎀|💝|🎈/.test(text)
   ) {
-    scores.gift += 30;
+    scores.gift =
+      (scores.gift || 0) + 30;
+  }
+
+
+  if (
+    text.includes("?") ||
+    text.includes("؟")
+  ) {
+    scores.curiosity =
+      (scores.curiosity || 0) + 12;
+  }
+
+
+  if (
+    text.includes("congratulations") ||
+    text.includes("congrats") ||
+    text.includes("mubarak ho") ||
+    text.includes("bohat bohat mubarak") ||
+    text.includes("مبارک ہو") ||
+    text.includes("بہت بہت مبارک")
+  ) {
+    scores.celebration += 45;
+  }
+
+
+  const sadSignals = [
+    "sad",
+    "cry",
+    "tears",
+    "lonely",
+    "dukhi",
+    "dard",
+    "udaas",
+    "tanhai",
+    "اداس",
+    "دکھی",
+    "درد",
+    "تنہائی",
+    "آنسو",
+    "حزين",
+    "حزن",
+    "بكاء",
+    "دموع"
+  ];
+
+  const sadCount =
+    sadSignals.filter(
+      x => text.includes(x)
+    ).length;
+
+  if (sadCount >= 2) {
+    scores.sadness += 30;
+  }
+
+
+  const loveSignals = [
+    "love",
+    "pyar",
+    "pyaar",
+    "mohabbat",
+    "ishq",
+    "chahat",
+    "محبت",
+    "پیار",
+    "عشق",
+    "چاہت",
+    "حب",
+    "أحب"
+  ];
+
+  const loveCount =
+    loveSignals.filter(
+      x => text.includes(x)
+    ).length;
+
+  if (loveCount >= 2) {
+    scores.love += 30;
+  }
+
+
+  const angerSignals = [
+    "angry",
+    "furious",
+    "mad",
+    "gussa",
+    "ghussa",
+    "nafrat",
+    "غصہ",
+    "نفرت",
+    "غاضب",
+    "غضب"
+  ];
+
+  const angerCount =
+    angerSignals.filter(
+      x => text.includes(x)
+    ).length;
+
+  if (angerCount >= 2) {
+    scores.anger += 25;
   }
 }
 
 
 /* =========================================================
- * SCORE RULE
- * ========================================================= */
-
-function scoreRule(text, rule) {
-
-  let score = 0;
-
-  for (const keyword of rule.keywords || []) {
-
-    const k =
-      normalizeReactionText(
-        keyword
-      );
-
-    if (!k) {
-      continue;
-    }
-
-    if (text.includes(k)) {
-
-      score +=
-        k.length >= 8
-          ? 5
-          : k.length >= 4
-            ? 3
-            : 2;
-    }
-  }
-
-  return score;
-}
-
-
-/* =========================================================
- * GET AUTO REACTION
+ * AUTO REACTION
  * ========================================================= */
 
 export function getAutoReaction(text = "") {
 
-  const rawText =
-    String(text || "");
+  const raw =
+    safeString(text);
 
   const msg =
-    normalizeReactionText(
-      rawText
-    );
+    normalizeText(raw);
 
   if (
     !msg ||
@@ -1359,11 +1572,7 @@ export function getAutoReaction(text = "") {
   const scores = {};
 
 
-  /* Score text */
-
-  for (
-    const rule of DEEP_REACTION_RULES
-  ) {
+  for (const rule of REACTION_RULES) {
 
     scores[rule.name] =
       scoreRule(
@@ -1373,33 +1582,17 @@ export function getAutoReaction(text = "") {
   }
 
 
-  /* Deep context */
-
   applyDeepContext(
     msg,
     scores
   );
 
 
-  /* Existing emojis also influence meaning */
-
-  applyEmojiContext(
-    rawText,
-    scores
-  );
-
-
-  /* =======================================================
-   * BEST RULE
-   * ======================================================= */
-
   let bestRule = null;
   let bestScore = 0;
 
 
-  for (
-    const rule of DEEP_REACTION_RULES
-  ) {
+  for (const rule of REACTION_RULES) {
 
     const score =
       scores[rule.name] || 0;
@@ -1428,22 +1621,13 @@ export function getAutoReaction(text = "") {
   }
 
 
-  /* =======================================================
-   * FALLBACK
-   * ======================================================= */
-
   if (
     !bestRule ||
     bestScore < 3
   ) {
-
     return "❤️";
   }
 
-
-  /*
-   * EXACTLY ONE EMOJI
-   */
 
   return randomItem(
     bestRule.reactions
@@ -1477,18 +1661,54 @@ const AUDIT_ACTIONS = new Set([
 
 
 /* =========================================================
+ * COMMAND BODY
+ * ========================================================= */
+
+function getCommandBody(message) {
+
+  return safeString(
+    message?.body
+  ).trim();
+}
+
+
+function isCommandBody(body) {
+
+  const prefix =
+    safeString(
+      BOT_INFO?.PREFIX || "."
+    );
+
+  return Boolean(
+    prefix &&
+    body.startsWith(prefix)
+  );
+}
+
+
+/* =========================================================
  * MESSAGE HANDLER
  * ========================================================= */
 
 export async function messageHandler(params) {
 
-  const {
-    message,
-    conn,
-  } = params;
+  const message =
+    params?.message;
+
+  const conn =
+    params?.conn;
 
 
   try {
+
+    /* =====================================================
+     * BASIC VALIDATION
+     * ===================================================== */
+
+    if (!message || !conn) {
+      return;
+    }
+
 
     /* =====================================================
      * IGNORE BOT
@@ -1509,14 +1729,28 @@ export async function messageHandler(params) {
 
 
     /* =====================================================
-     * NO BODY
+     * BODY
      * ===================================================== */
 
-    if (
-      !message?.body
-    ) {
+    const body =
+      getCommandBody(message);
+
+
+    if (!body) {
       return;
     }
+
+
+    /* =====================================================
+     * COMMAND CHECK
+     *
+     * IMPORTANT:
+     * We use trimmed body here.
+     * Old code checked message.body directly.
+     * ===================================================== */
+
+    const isCommand =
+      isCommandBody(body);
 
 
     /* =====================================================
@@ -1532,119 +1766,153 @@ export async function messageHandler(params) {
 
 
       /*
-       * Default ON.
+       * AutoReact is ON by default.
        */
 
       if (
-        autoReact !== false
+        autoReact !== false &&
+        !isCommand &&
+        !isOwnerMessage(message)
       ) {
 
-        /*
-         * Commands should NOT receive reactions.
-         */
-
-        const body =
-          String(
-            message.body || ""
-          ).trim();
+        const reaction =
+          getAutoReaction(body);
 
 
-        const isCommand =
-          body.startsWith(
-            BOT_INFO.PREFIX
+        if (reaction) {
+
+          await conn.sendMessage(
+            message.from,
+            {
+              react: {
+                text: reaction,
+                key: message.key,
+              },
+            }
           );
-
-
-        /*
-         * Owner messages should NOT receive reactions.
-         */
-
-        const ownerMessage =
-          isOwnerMessage(
-            message
-          );
-
-
-        if (
-          !isCommand &&
-          !ownerMessage
-        ) {
-
-          const reaction =
-            getAutoReaction(
-              body
-            );
-
-
-          /*
-           * Exactly ONE reaction.
-           */
-
-          if (
-            reaction
-          ) {
-
-            await conn.sendMessage(
-              message.from,
-              {
-                react: {
-                  text: reaction,
-                  key: message.key,
-                },
-              }
-            );
-          }
         }
       }
 
     } catch (error) {
 
       /*
-       * AutoReact failure must NEVER
-       * stop command processing.
+       * AutoReact must NEVER
+       * break command execution.
        */
 
-      logger.debug?.(
-        `[AutoReact] ${
-          error?.message ||
-          error
-        }`
-      );
+      try {
+
+        logger.debug?.(
+          `[AutoReact] ${
+            error?.message ||
+            error
+          }`
+        );
+
+      } catch {
+        // Ignore logger errors.
+      }
     }
 
 
     /* =====================================================
-     * COMMAND HANDLER
+     * NOT A COMMAND
      * ===================================================== */
 
-    if (
-      !message.body.startsWith(
-        BOT_INFO.PREFIX
-      )
-    ) {
+    if (!isCommand) {
       return;
     }
 
 
-    const command =
-      findCommand(
-        message.body
+    /* =====================================================
+     * COMMAND DEBUG
+     * ===================================================== */
+
+    try {
+
+      logger.debug?.(
+        `[CMD DEBUG] body=${JSON.stringify(body)} prefix=${JSON.stringify(BOT_INFO?.PREFIX)}`
       );
 
+    } catch {
+      // Ignore debug logger errors.
+    }
 
-    if (
-      !command
-    ) {
+
+    /* =====================================================
+     * FIND COMMAND
+     *
+     * IMPORTANT:
+     * findCommand receives trimmed body.
+     * ===================================================== */
+
+    const command =
+      findCommand(body);
+
+
+    /* =====================================================
+     * COMMAND NOT FOUND
+     * ===================================================== */
+
+    if (!command) {
+
+      try {
+
+        logger.warn?.(
+          `[CMD DEBUG] command NOT FOUND: ${JSON.stringify(body)}`
+        );
+
+      } catch {
+        // Ignore logger errors.
+      }
+
+      /*
+       * Do not silently crash.
+       * Send a small safe response.
+       */
+
+      try {
+
+        await conn.sendMessage(
+          message.from,
+          {
+            text:
+              `❌ Command not found.\nUse ${BOT_INFO?.PREFIX || "."}menu`
+          }
+        );
+
+      } catch {
+        // Ignore send failure.
+      }
+
       return;
     }
 
 
+    /* =====================================================
+     * COMMAND NAME
+     * ===================================================== */
+
     const name =
-      (
-        command.patternName ||
-        ""
+      safeString(
+        command.patternName
       ).toLowerCase();
 
+
+    try {
+
+      logger.debug?.(
+        `[CMD DEBUG] command=${name || "unknown"}`
+      );
+
+    } catch {
+      // Ignore logger errors.
+    }
+
+
+    /* =====================================================
+     * PRIVILEGED
+     * ===================================================== */
 
     const privileged =
       await isPrivileged(
@@ -1665,13 +1933,21 @@ export async function messageHandler(params) {
       );
 
 
+    /*
+     * Protect against an invalid/undefined
+     * access response.
+     */
+
     if (
-      !access.allowed
+      !access ||
+      access.allowed !== true
     ) {
 
-      if (
-        access.silent
-      ) {
+      const silent =
+        access?.silent === true;
+
+
+      if (silent) {
         return;
       }
 
@@ -1679,7 +1955,7 @@ export async function messageHandler(params) {
       await sendError(
         conn,
         message.from,
-        access.reason ||
+        access?.reason ||
           "OWNER_ONLY"
       );
 
@@ -1698,21 +1974,21 @@ export async function messageHandler(params) {
 
 
     if (
-      !flagCheck.ok
+      !flagCheck?.ok
     ) {
 
       if (
-        flagCheck.flag ===
+        flagCheck?.flag ===
           "maintenance" &&
         privileged
       ) {
 
-        /* Privileged can continue. */
+        /* Privileged user can continue. */
 
       }
 
       else if (
-        flagCheck.flag ===
+        flagCheck?.flag ===
         "maintenance"
       ) {
 
@@ -1731,7 +2007,7 @@ export async function messageHandler(params) {
         await sendError(
           conn,
           message.from,
-          `⚠️ Feature *${flagCheck.flag}* is disabled.`
+          `⚠️ Feature *${flagCheck?.flag || "unknown"}* is disabled.`
         );
 
         return;
@@ -1754,7 +2030,7 @@ export async function messageHandler(params) {
 
 
     if (
-      !policy.ok
+      !policy?.ok
     ) {
 
       const msgs = {
@@ -1777,9 +2053,10 @@ export async function messageHandler(params) {
         conn,
         message.from,
         msgs[
-          policy.reason
+          policy?.reason
         ] ||
-          policy.reason
+        policy?.reason ||
+        "Command blocked by policy."
       );
 
       return;
@@ -1802,28 +2079,27 @@ export async function messageHandler(params) {
 
 
       const disabled =
-        settings.disabledPlugins ||
-        [];
+        Array.isArray(
+          settings?.disabledPlugins
+        )
+          ? settings.disabledPlugins
+          : [];
 
 
       if (
-        disabled.includes(name)
+        disabled.includes(name) &&
+        !privileged
       ) {
 
-        if (
-          !privileged
-        ) {
+        await sendError(
+          conn,
+          message.from,
+          await t(
+            "PLUGIN_DISABLED"
+          )
+        );
 
-          await sendError(
-            conn,
-            message.from,
-            await t(
-              "PLUGIN_DISABLED"
-            )
-          );
-
-          return;
-        }
+        return;
       }
     }
 
@@ -1832,14 +2108,20 @@ export async function messageHandler(params) {
      * LOGGER
      * ===================================================== */
 
-    logger.command(
-      name ||
-        "unknown",
-      message.sender,
-      message.isGroup
-        ? message.from
-        : null
-    );
+    try {
+
+      logger.command(
+        name ||
+          "unknown",
+        message.sender,
+        message.isGroup
+          ? message.from
+          : null
+      );
+
+    } catch {
+      // Logger failure must not kill command.
+    }
 
 
     /* =====================================================
@@ -1855,13 +2137,14 @@ export async function messageHandler(params) {
 
 
     if (
-      !validation.valid
+      !validation?.valid
     ) {
 
       await sendError(
         conn,
         message.from,
-        validation.error
+        validation?.error ||
+          "Command validation failed."
       );
 
       return;
@@ -1886,9 +2169,7 @@ export async function messageHandler(params) {
         );
 
 
-      if (
-        !groupMetadata
-      ) {
+      if (!groupMetadata) {
 
         groupMetadata =
           await conn.groupMetadata(
@@ -1918,13 +2199,14 @@ export async function messageHandler(params) {
 
 
       if (
-        !groupValidation.valid
+        !groupValidation?.valid
       ) {
 
         await sendError(
           conn,
           message.from,
-          groupValidation.error
+          groupValidation?.error ||
+            "Group permission denied."
         );
 
         return;
@@ -1933,28 +2215,68 @@ export async function messageHandler(params) {
 
 
     /* =====================================================
-     * ACKNOWLEDGEMENT
+     * ACK
      * ===================================================== */
 
-    await ackCommand(
-      conn,
-      message
-    );
+    try {
+
+      await ackCommand(
+        conn,
+        message
+      );
+
+    } catch (error) {
+
+      /*
+       * ACK failure should not stop
+       * the actual command.
+       */
+
+      try {
+
+        logger.debug?.(
+          `[ACK] ${
+            error?.message ||
+            error
+          }`
+        );
+
+      } catch {
+        // Ignore.
+      }
+    }
 
 
     /* =====================================================
      * METRICS
      * ===================================================== */
 
-    recordCommand(
-      name ||
-        "unknown"
-    );
+    try {
+
+      recordCommand(
+        name ||
+          "unknown"
+      );
+
+    } catch {
+      // Metrics failure must not stop command.
+    }
 
 
     /* =====================================================
      * EXECUTE COMMAND
      * ===================================================== */
+
+    if (
+      typeof command.function !==
+      "function"
+    ) {
+
+      throw new Error(
+        `Command "${name}" has no executable function`
+      );
+    }
+
 
     await command.function(
       message,
@@ -1984,14 +2306,13 @@ export async function messageHandler(params) {
           message.from,
 
         meta: {
+
           body:
-            String(
-              message.body ||
-              ""
-            ).slice(
+            body.slice(
               0,
               120
             ),
+
         },
 
       }).catch(
@@ -2003,7 +2324,15 @@ export async function messageHandler(params) {
 
   catch (error) {
 
-    recordError();
+    /* =====================================================
+     * HANDLER ERROR
+     * ===================================================== */
+
+    try {
+      recordError();
+    } catch {
+      // Ignore metrics error.
+    }
 
 
     const where =
@@ -2013,22 +2342,38 @@ export async function messageHandler(params) {
       }`;
 
 
-    await systemLog(
-      "error",
-      `Handler crash: ${where}`,
-      error
-    );
+    try {
 
-
-    const inLog =
-      await isLogGroupAsync(
-        message?.from
+      await systemLog(
+        "error",
+        `Handler crash: ${where}`,
+        error
       );
+
+    } catch {
+      // Ignore logging failure.
+    }
+
+
+    let inLog = false;
+
+
+    try {
+
+      inLog =
+        await isLogGroupAsync(
+          message?.from
+        );
+
+    } catch {
+      inLog = false;
+    }
 
 
     try {
 
       if (
+        message?.from &&
         inLog
       ) {
 
@@ -2043,7 +2388,9 @@ export async function messageHandler(params) {
 
       }
 
-      else {
+      else if (
+        message?.from
+      ) {
 
         await sendError(
           conn,
@@ -2058,14 +2405,24 @@ export async function messageHandler(params) {
 
     catch (sendErr) {
 
-      recordError();
+      try {
+        recordError();
+      } catch {
+        // Ignore.
+      }
 
 
-      await systemLog(
-        "error",
-        "Failed to send user-safe error",
-        sendErr
-      );
+      try {
+
+        await systemLog(
+          "error",
+          "Failed to send user-safe error",
+          sendErr
+        );
+
+      } catch {
+        // Ignore.
+      }
     }
   }
 }
@@ -2080,8 +2437,14 @@ function commandNameSafe(message) {
   try {
 
     const body =
-      message?.body ||
-      "";
+      safeString(
+        message?.body
+      ).trim();
+
+
+    if (!body) {
+      return "unknown";
+    }
 
 
     return (
