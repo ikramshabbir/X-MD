@@ -10,16 +10,21 @@ import makeWASocket, {
 } from "baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
-import { useMultiDbAuthState } from "../database/authState.js";
+
+import {
+  useMultiDbAuthState,
+  clearAuthState,
+} from "../database/authState.js";
+
 import { serialize } from "../messages/serialize.js";
 import { messageHandler } from "../messages/handler.js";
 import { setConnection } from "../terminal/handler.js";
 import { groupCache, msgCache } from "../utils/cache.js";
-import { attachGroupParticipantEvents } from "../events/groupParticipants.js";
 import {
   startReminderScheduler,
   stopReminderScheduler,
 } from "../utils/reminders.js";
+import { attachGroupParticipantEvents } from "../events/groupParticipants.js";
 import { processGroupGuards } from "../messages/groupGuards.js";
 
 const logger = pino({
@@ -253,11 +258,6 @@ async function connect() {
 
     const version = await getVersion();
 
-    const hasSession = !!(
-      state.creds?.me ||
-      state.creds?.registered
-    );
-
     const socketOptions = {
       logger,
 
@@ -418,10 +418,65 @@ async function connect() {
             lastDisconnect?.error?.output
               ?.statusCode;
 
-          const shouldReconnect =
-            statusCode !==
+          const isLoggedOut =
+            statusCode ===
             DisconnectReason.loggedOut;
 
+          /*
+           * If WhatsApp has logged out/unlinked this
+           * session, remove the saved auth state.
+           *
+           * This prevents the old session from being
+           * reused on the next pairing request.
+           */
+          if (isLoggedOut) {
+            console.log(
+              "🔓 WhatsApp session logged out/unlinked."
+            );
+
+            latestPairingCode = null;
+            latestPairingNumber = null;
+
+            stopReminderScheduler();
+
+            if (globalConnection === conn) {
+              globalConnection = null;
+              setConnection(null);
+            }
+
+            cleanupSocket(conn);
+
+            try {
+              await clearAuthState();
+
+              console.log(
+                "🧹 Old WhatsApp authentication state cleared."
+              );
+            } catch (authError) {
+              console.error(
+                "❌ Failed to clear authentication state:",
+                authError?.message || authError
+              );
+            }
+
+            /*
+             * Do NOT reconnect automatically after logout.
+             * The next portal pairing request will create
+             * a fresh authentication session.
+             */
+            isConnecting = false;
+
+            console.log(
+              "⏹️ Waiting for a new pairing request..."
+            );
+
+            return;
+          }
+
+          /*
+           * Normal temporary disconnect.
+           * Keep the saved session and reconnect.
+           */
           stopReminderScheduler();
 
           cleanupSocket(conn);
@@ -434,43 +489,35 @@ async function connect() {
           latestPairingCode = null;
           latestPairingNumber = null;
 
-          if (shouldReconnect) {
-            const delay =
-              backoffDelay(
-                reconnectAttempt
-              );
-
-            reconnectAttempt += 1;
-
-            console.log(
-              `❌ Connection closed (code ${
-                statusCode ?? "?"
-              }). Reconnecting in ${Math.round(
-                delay / 1000
-              )}s...`
+          const delay =
+            backoffDelay(
+              reconnectAttempt
             );
 
-            isConnecting = false;
+          reconnectAttempt += 1;
 
-            setTimeout(() => {
-              connect().catch(
-                (err) => {
-                  console.error(
-                    "Reconnect failed:",
-                    err?.message || err
-                  );
+          console.log(
+            `❌ Connection closed (code ${
+              statusCode ?? "?"
+            }). Reconnecting in ${Math.round(
+              delay / 1000
+            )}s...`
+          );
 
-                  isConnecting = false;
-                }
-              );
-            }, delay);
-          } else {
-            console.log(
-              "🔓 Logged out. Restart the bot to login again."
+          isConnecting = false;
+
+          setTimeout(() => {
+            connect().catch(
+              (err) => {
+                console.error(
+                  "Reconnect failed:",
+                  err?.message || err
+                );
+
+                isConnecting = false;
+              }
             );
-
-            isConnecting = false;
-          }
+          }, delay);
         }
       }
     );
@@ -591,6 +638,11 @@ async function connect() {
     isConnecting = false;
 
     cleanupSocket(conn);
+
+    if (globalConnection === conn) {
+      globalConnection = null;
+      setConnection(null);
+    }
 
     throw error;
   }
