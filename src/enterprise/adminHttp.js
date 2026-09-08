@@ -1,8 +1,11 @@
 /**
- * X-MD Admin HTTP + simple secure WhatsApp pairing portal.
+ * X-MD Admin HTTP + secure WhatsApp pairing portal.
  *
  * Flow:
  * Portal → PIN → WhatsApp number → Pairing code
+ *
+ * Multi-session:
+ * Each WhatsApp number gets its own session.
  */
 
 import http from "http";
@@ -32,7 +35,9 @@ import {
   requestPortalPairing,
 } from "../socket/connection.js";
 
+
 let server = null;
+
 
 /* =========================
    Environment
@@ -50,90 +55,138 @@ const adminToken =
 ========================= */
 
 function auth(req, token) {
-  if (!token) return false;
+
+  if (!token) {
+    return false;
+  }
 
   const header =
     req.headers.authorization || "";
 
-  if (header === `Bearer ${token}`) {
+  if (
+    header ===
+    `Bearer ${token}`
+  ) {
     return true;
   }
 
-  const url = new URL(
-    req.url || "/",
-    "http://localhost"
-  );
+  const url =
+    new URL(
+      req.url || "/",
+      "http://localhost"
+    );
 
   return (
-    url.searchParams.get("token") === token
+    url.searchParams.get(
+      "token"
+    ) === token
   );
 }
 
 
-function json(res, code, body) {
-  res.writeHead(code, {
-    "Content-Type":
-      "application/json; charset=utf-8",
+function json(
+  res,
+  code,
+  body
+) {
 
-    "Cache-Control":
-      "no-store",
-  });
+  res.writeHead(
+    code,
+    {
+      "Content-Type":
+        "application/json; charset=utf-8",
+
+      "Cache-Control":
+        "no-store",
+    }
+  );
 
   res.end(
-    JSON.stringify(body, null, 2)
+    JSON.stringify(
+      body,
+      null,
+      2
+    )
   );
 }
 
 
-function html(res, body) {
-  res.writeHead(200, {
-    "Content-Type":
-      "text/html; charset=utf-8",
+function html(
+  res,
+  body
+) {
 
-    "Cache-Control":
-      "no-store",
-  });
+  res.writeHead(
+    200,
+    {
+      "Content-Type":
+        "text/html; charset=utf-8",
+
+      "Cache-Control":
+        "no-store",
+    }
+  );
 
   res.end(body);
 }
 
 
 function readBody(req) {
+
   return new Promise(
     (resolve, reject) => {
 
       let body = "";
 
-      req.on("data", (chunk) => {
+      req.on(
+        "data",
+        (chunk) => {
 
-        body += chunk;
+          body += chunk;
 
-        if (body.length > 10_000) {
-          req.destroy();
+          if (
+            body.length >
+            10_000
+          ) {
 
-          reject(
-            new Error("Request too large")
-          );
+            req.destroy();
+
+            reject(
+              new Error(
+                "Request too large"
+              )
+            );
+          }
         }
-      });
+      );
 
-      req.on("end", () => {
 
-        try {
+      req.on(
+        "end",
+        () => {
 
-          resolve(
-            body
-              ? JSON.parse(body)
-              : {}
-          );
+          try {
 
-        } catch {
+            resolve(
+              body
+                ? JSON.parse(
+                    body
+                  )
+                : {}
+            );
 
-          resolve({});
+          } catch {
+
+            resolve({});
+          }
         }
-      });
+      );
 
-      req.on("error", reject);
+
+      req.on(
+        "error",
+        reject
+      );
     }
   );
 }
@@ -165,11 +218,15 @@ const portalHtml = `
 }
 
 body {
+
   margin: 0;
+
   min-height: 100vh;
 
   display: flex;
+
   align-items: center;
+
   justify-content: center;
 
   font-family:
@@ -188,11 +245,15 @@ body {
   padding: 20px;
 }
 
+
 .card {
+
   width: 100%;
+
   max-width: 430px;
 
-  background: #1e293b;
+  background:
+    #1e293b;
 
   border-radius: 20px;
 
@@ -203,7 +264,9 @@ body {
     rgba(0,0,0,.35);
 }
 
+
 .logo {
+
   text-align: center;
 
   font-size: 42px;
@@ -211,7 +274,9 @@ body {
   margin-bottom: 8px;
 }
 
+
 h1 {
+
   text-align: center;
 
   margin: 0;
@@ -219,26 +284,34 @@ h1 {
   font-size: 25px;
 }
 
+
 .sub {
+
   text-align: center;
 
-  color: #94a3b8;
+  color:
+    #94a3b8;
 
   margin:
     10px 0 25px;
 }
 
+
 label {
+
   display: block;
 
   margin-bottom: 8px;
 
   font-size: 14px;
 
-  color: #cbd5e1;
+  color:
+    #cbd5e1;
 }
 
+
 input {
+
   width: 100%;
 
   padding: 14px;
@@ -248,7 +321,8 @@ input {
 
   border-radius: 10px;
 
-  background: #0f172a;
+  background:
+    #0f172a;
 
   color: white;
 
@@ -259,11 +333,16 @@ input {
   margin-bottom: 14px;
 }
 
+
 input:focus {
-  border-color: #22c55e;
+
+  border-color:
+    #22c55e;
 }
 
+
 button {
+
   width: 100%;
 
   padding: 14px;
@@ -272,7 +351,8 @@ button {
 
   border-radius: 10px;
 
-  background: #22c55e;
+  background:
+    #22c55e;
 
   color: white;
 
@@ -283,17 +363,24 @@ button {
   cursor: pointer;
 }
 
+
 button:hover {
-  background: #16a34a;
+
+  background:
+    #16a34a;
 }
 
+
 button:disabled {
+
   opacity: .5;
 
   cursor: not-allowed;
 }
 
+
 .result {
+
   display: none;
 
   margin-top: 22px;
@@ -304,10 +391,13 @@ button:disabled {
 
   border-radius: 14px;
 
-  background: #0f172a;
+  background:
+    #0f172a;
 }
 
+
 .code {
+
   font-size: 30px;
 
   font-weight: bold;
@@ -317,35 +407,50 @@ button:disabled {
   margin: 15px 0;
 }
 
+
 .status {
+
   margin-top: 15px;
 
   padding: 10px;
 
   border-radius: 8px;
 
-  background: #334155;
+  background:
+    #334155;
 
-  color: #cbd5e1;
+  color:
+    #cbd5e1;
 }
 
+
 .small {
+
   font-size: 13px;
 
-  color: #94a3b8;
+  color:
+    #94a3b8;
 
   line-height: 1.5;
 }
 
+
 .error {
-  color: #fca5a5;
+
+  color:
+    #fca5a5;
 }
+
 
 .success {
-  color: #86efac;
+
+  color:
+    #86efac;
 }
 
+
 .hidden {
+
   display: none;
 }
 
@@ -353,17 +458,22 @@ button:disabled {
 
 </head>
 
+
 <body>
 
+
 <div class="card">
+
 
   <div class="logo">
     🤖
   </div>
 
+
   <h1>
     X-MD WhatsApp
   </h1>
+
 
   <div class="sub">
     Secure WhatsApp Pairing
@@ -374,9 +484,11 @@ button:disabled {
 
   <div id="loginBox">
 
+
     <label>
       Portal PIN
     </label>
+
 
     <input
       id="pin"
@@ -385,6 +497,7 @@ button:disabled {
       autocomplete="off"
     >
 
+
     <button
       id="loginBtn"
       onclick="login()"
@@ -392,19 +505,22 @@ button:disabled {
       Continue
     </button>
 
+
   </div>
 
 
-  <!-- Pairing -->
+  <!-- PAIRING -->
 
   <div
     id="pairBox"
     class="hidden"
   >
 
+
     <label>
       WhatsApp Number
     </label>
+
 
     <input
       id="number"
@@ -412,6 +528,7 @@ button:disabled {
       placeholder="923001234567"
       autocomplete="off"
     >
+
 
     <button
       id="pairBtn"
@@ -426,9 +543,11 @@ button:disabled {
       class="result"
     >
 
+
       <div class="small">
         Your pairing code:
       </div>
+
 
       <div
         id="code"
@@ -437,10 +556,12 @@ button:disabled {
         ----
       </div>
 
+
       <div class="small">
         WhatsApp → Linked devices →
         Link with phone number
       </div>
+
 
       <div
         id="status"
@@ -449,14 +570,18 @@ button:disabled {
         Waiting...
       </div>
 
+
     </div>
 
+
   </div>
+
 
 </div>
 
 
 <script>
+
 
 let portalSession = "";
 
@@ -469,13 +594,19 @@ async function login() {
 
   const pin =
     document
-      .getElementById("pin")
+      .getElementById(
+        "pin"
+      )
       .value
       .trim();
 
+
   const button =
     document
-      .getElementById("loginBtn");
+      .getElementById(
+        "loginBtn"
+      );
+
 
   if (!pin) {
 
@@ -486,10 +617,12 @@ async function login() {
     return;
   }
 
+
   button.disabled = true;
 
   button.textContent =
     "Checking...";
+
 
   try {
 
@@ -497,21 +630,25 @@ async function login() {
       await fetch(
         "/api/portal-login",
         {
-          method: "POST",
+          method:
+            "POST",
 
           headers: {
             "Content-Type":
               "application/json"
           },
 
-          body: JSON.stringify({
-            pin
-          })
+          body:
+            JSON.stringify({
+              pin
+            })
         }
       );
 
+
     const data =
       await response.json();
+
 
     if (!response.ok) {
 
@@ -521,16 +658,28 @@ async function login() {
       );
     }
 
+
     portalSession =
       data.session;
 
-    document
-      .getElementById("loginBox")
-      .classList.add("hidden");
 
     document
-      .getElementById("pairBox")
-      .classList.remove("hidden");
+      .getElementById(
+        "loginBox"
+      )
+      .classList.add(
+        "hidden"
+      );
+
+
+    document
+      .getElementById(
+        "pairBox"
+      )
+      .classList.remove(
+        "hidden"
+      );
+
 
   } catch (error) {
 
@@ -538,9 +687,11 @@ async function login() {
       error.message
     );
 
+
   } finally {
 
-    button.disabled = false;
+    button.disabled =
+      false;
 
     button.textContent =
       "Continue";
@@ -556,25 +707,42 @@ async function requestPairing() {
 
   const number =
     document
-      .getElementById("number")
+      .getElementById(
+        "number"
+      )
       .value
-      .replace(/\\D/g, "");
+      .replace(
+        /\\D/g,
+        ""
+      );
+
 
   const button =
     document
-      .getElementById("pairBtn");
+      .getElementById(
+        "pairBtn"
+      );
+
 
   const result =
     document
-      .getElementById("result");
+      .getElementById(
+        "result"
+      );
+
 
   const code =
     document
-      .getElementById("code");
+      .getElementById(
+        "code"
+      );
+
 
   const status =
     document
-      .getElementById("status");
+      .getElementById(
+        "status"
+      );
 
 
   if (!number) {
@@ -597,19 +765,25 @@ async function requestPairing() {
   }
 
 
-  button.disabled = true;
+  button.disabled =
+    true;
+
 
   button.textContent =
     "Generating code...";
 
+
   result.style.display =
     "block";
+
 
   code.textContent =
     "----";
 
+
   status.textContent =
     "Connecting to WhatsApp...";
+
 
   status.className =
     "status";
@@ -621,9 +795,11 @@ async function requestPairing() {
       await fetch(
         "/api/pair",
         {
-          method: "POST",
+          method:
+            "POST",
 
           headers: {
+
             "Content-Type":
               "application/json",
 
@@ -631,9 +807,10 @@ async function requestPairing() {
               portalSession
           },
 
-          body: JSON.stringify({
-            number
-          })
+          body:
+            JSON.stringify({
+              number
+            })
         }
       );
 
@@ -652,7 +829,8 @@ async function requestPairing() {
 
 
     code.textContent =
-      data.code || "----";
+      data.code ||
+      "----";
 
 
     status.textContent =
@@ -668,8 +846,10 @@ async function requestPairing() {
     code.textContent =
       "----";
 
+
     status.textContent =
       error.message;
+
 
     status.className =
       "status error";
@@ -677,7 +857,8 @@ async function requestPairing() {
 
   } finally {
 
-    button.disabled = false;
+    button.disabled =
+      false;
 
     button.textContent =
       "Get Pairing Code";
@@ -687,6 +868,7 @@ async function requestPairing() {
 </script>
 
 </body>
+
 </html>
 `;
 
@@ -706,23 +888,31 @@ function createSession() {
       .toString(36)
       .slice(2)}`;
 
+
   portalSessions.set(
     session,
     Date.now()
   );
 
+
   return session;
 }
 
 
-function validPortalSession(session) {
+function validPortalSession(
+  session
+) {
 
   if (!session) {
     return false;
   }
 
+
   const created =
-    portalSessions.get(session);
+    portalSessions.get(
+      session
+    );
+
 
   if (!created) {
     return false;
@@ -730,7 +920,8 @@ function validPortalSession(session) {
 
 
   const expired =
-    Date.now() - created >
+    Date.now() -
+      created >
     30 * 60 * 1000;
 
 
@@ -799,22 +990,27 @@ export function startAdminHttp() {
 
   server =
     http.createServer(
-      async (req, res) => {
+      async (
+        req,
+        res
+      ) => {
 
         try {
 
           const url =
             new URL(
-              req.url || "/",
+              req.url ||
+                "/",
               `http://${host}`
             );
+
 
           const path =
             url.pathname;
 
 
           /* =====================
-             Portal
+             PORTAL
           ===================== */
 
           if (
@@ -830,27 +1026,32 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Portal Login
+             PORTAL LOGIN
           ===================== */
 
           if (
             path ===
               "/api/portal-login" &&
-            req.method === "POST"
+            req.method ===
+              "POST"
           ) {
 
             const body =
-              await readBody(req);
+              await readBody(
+                req
+              );
 
 
             const pin =
               String(
-                body.pin || ""
+                body.pin ||
+                ""
               ).trim();
 
 
             if (
-              pin !== portalPin
+              pin !==
+              portalPin
             ) {
 
               return json(
@@ -880,12 +1081,14 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Pairing
+             PAIRING
           ===================== */
 
           if (
-            path === "/api/pair" &&
-            req.method === "POST"
+            path ===
+              "/api/pair" &&
+            req.method ===
+              "POST"
           ) {
 
             const session =
@@ -912,12 +1115,15 @@ export function startAdminHttp() {
 
 
             const body =
-              await readBody(req);
+              await readBody(
+                req
+              );
 
 
             const number =
               String(
-                body.number || ""
+                body.number ||
+                ""
               ).replace(
                 /\D/g,
                 ""
@@ -937,13 +1143,13 @@ export function startAdminHttp() {
             }
 
 
-            /*
-             * Basic WhatsApp number validation.
-             */
+            /* Number validation */
 
             if (
-              number.length < 10 ||
-              number.length > 15
+              number.length <
+                10 ||
+              number.length >
+                15
             ) {
 
               return json(
@@ -962,14 +1168,12 @@ export function startAdminHttp() {
               /*
                * IMPORTANT:
                *
-               * WhatsApp session is created
-               * from the WhatsApp number.
+               * Do NOT use portal-${session}
+               * as WhatsApp session ID.
                *
-               * Portal login session is ONLY
-               * used for portal authentication.
-               *
-               * This allows different users
-               * to create independent sessions.
+               * requestPortalPairing()
+               * creates the session from
+               * the WhatsApp number.
                */
 
               const result =
@@ -1009,12 +1213,12 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Pairing Status
+             PAIRING STATUS
           ===================== */
 
           if (
             path ===
-              "/api/pairing"
+            "/api/pairing"
           ) {
 
             if (
@@ -1044,11 +1248,12 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Health
+             HEALTH
           ===================== */
 
           if (
-            path === "/health"
+            path ===
+            "/health"
           ) {
 
             const ff =
@@ -1096,7 +1301,7 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Admin API
+             ADMIN AUTH
           ===================== */
 
           if (
@@ -1118,14 +1323,16 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Metrics
+             METRICS
           ===================== */
 
           if (
-            path === "/metrics" &&
+            path ===
+              "/metrics" &&
             url.searchParams.get(
               "format"
-            ) === "prom"
+            ) ===
+              "prom"
           ) {
 
             res.writeHead(
@@ -1136,16 +1343,19 @@ export function startAdminHttp() {
               }
             );
 
+
             res.end(
               metricsPrometheus()
             );
+
 
             return;
           }
 
 
           if (
-            path === "/metrics"
+            path ===
+            "/metrics"
           ) {
 
             return json(
@@ -1157,11 +1367,12 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Flags
+             FLAGS
           ===================== */
 
           if (
-            path === "/flags"
+            path ===
+            "/flags"
           ) {
 
             return json(
@@ -1173,11 +1384,12 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Policies
+             POLICIES
           ===================== */
 
           if (
-            path === "/policies"
+            path ===
+            "/policies"
           ) {
 
             return json(
@@ -1189,25 +1401,28 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Audit
+             AUDIT
           ===================== */
 
           if (
-            path === "/audit"
+            path ===
+            "/audit"
           ) {
 
             const limit =
               Number(
                 url.searchParams.get(
                   "limit"
-                ) || 50
+                ) ||
+                50
               );
 
 
             const action =
               url.searchParams.get(
                 "action"
-              ) || undefined;
+              ) ||
+              undefined;
 
 
             return json(
@@ -1222,7 +1437,7 @@ export function startAdminHttp() {
 
 
           /* =====================
-             Not Found
+             NOT FOUND
           ===================== */
 
           return json(
@@ -1266,9 +1481,11 @@ export function startAdminHttp() {
         `🌐 X-MD Portal running on http://${host}:${port}`
       );
 
+
       console.log(
         `🔐 Portal PIN protection enabled`
       );
+
 
       console.log(
         `🛡 Admin API protected by ADMIN_HTTP_TOKEN`
