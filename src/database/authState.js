@@ -1,7 +1,9 @@
+title="authState.js replacement"
+
 /**
  * Auth State Factory
- * Dual backend: better-sqlite3 (default) | Sequelize Postgres (when DATABASE_URL is postgres)
- * Shared interface: { state, saveCreds }
+ * Dual backend: better-sqlite3 | Sequelize Postgres
+ * Supports full auth reset for fresh WhatsApp pairing.
  */
 
 import config from "../../config.js";
@@ -15,14 +17,26 @@ async function initBackend() {
     const { createPostgresSequelize, usePostgresAuthState } = await import(
       "./authPostgres.js"
     );
+
     const sequelize = await createPostgresSequelize(config.DATABASE_URL);
+
     await sequelize.authenticate();
+
     activeBackend = await usePostgresAuthState(sequelize);
+
     console.log("✅ Auth backend: Postgres (Sequelize)");
   } else {
-    const { useBetterSqliteAuthState } = await import("./authSqlite.js");
-    activeBackend = await useBetterSqliteAuthState(config.SQLITE_PATH);
-    console.log(`✅ Auth backend: better-sqlite3 (${config.SQLITE_PATH})`);
+    const { useBetterSqliteAuthState } = await import(
+      "./authSqlite.js"
+    );
+
+    activeBackend = await useBetterSqliteAuthState(
+      config.SQLITE_PATH
+    );
+
+    console.log(
+      `✅ Auth backend: better-sqlite3 (${config.SQLITE_PATH})`
+    );
   }
 
   if (activeBackend?.botKv) {
@@ -33,15 +47,13 @@ async function initBackend() {
   return activeBackend;
 }
 
-/**
- * Initialize once and return Baileys-compatible auth state.
- * @returns {Promise<{ state: object, saveCreds: Function }>}
- */
 export async function useMultiDbAuthState() {
   if (!initPromise) {
     initPromise = initBackend();
   }
+
   const backend = await initPromise;
+
   return {
     state: backend.state,
     saveCreds: backend.saveCreds,
@@ -49,29 +61,69 @@ export async function useMultiDbAuthState() {
 }
 
 /**
- * Clear all auth state (logout / reset)
+ * Clear saved WhatsApp authentication.
  */
 export async function clearAuthState() {
   if (!initPromise) {
     await useMultiDbAuthState();
   }
-  await initPromise;
-  if (activeBackend?.clearAuthState) {
-    await activeBackend.clearAuthState();
-    console.log("Cleared auth state");
+
+  const backend = await initPromise;
+
+  if (typeof backend.clearAuthState === "function") {
+    await backend.clearAuthState();
+    console.log("🧹 Saved WhatsApp auth state cleared.");
   }
 }
 
 /**
- * Cheap creds existence check (no full table scan)
+ * Completely destroy the cached auth backend.
+ *
+ * This is important because clearing the database alone
+ * does not remove the old in-memory Baileys state.
  */
+export async function resetMultiDbAuthState() {
+  try {
+    if (initPromise) {
+      const backend = await initPromise;
+
+      if (typeof backend.clearAuthState === "function") {
+        await backend.clearAuthState();
+      }
+
+      if (typeof backend.close === "function") {
+        try {
+          await backend.close();
+        } catch (err) {
+          console.warn(
+            "[auth] backend close warning:",
+            err?.message || err
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[auth] reset error:",
+      err?.message || err
+    );
+  } finally {
+    activeBackend = null;
+    initPromise = null;
+  }
+
+  console.log("🔄 Auth state completely reset.");
+}
+
 export async function checkAuthCreds() {
   if (!initPromise) {
     await useMultiDbAuthState();
   }
+
   await initPromise;
+
   const has =
-    typeof activeBackend.hasCreds === "function"
+    typeof activeBackend?.hasCreds === "function"
       ? await activeBackend.hasCreds()
       : false;
 
@@ -81,14 +133,14 @@ export async function checkAuthCreds() {
   };
 }
 
-/**
- * @deprecated Prefer checkAuthCreds
- */
 export async function validateAuthState() {
   const result = await checkAuthCreds();
+
   return {
     valid: result.hasCreds,
-    issues: result.hasCreds ? [] : ["No credentials found"],
+    issues: result.hasCreds
+      ? []
+      : ["No credentials found"],
     stats: null,
   };
 }
