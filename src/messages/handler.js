@@ -434,4 +434,4 @@ export async function messageHandler(params) {
         await sendError(
           conn,
           message.from,
-          "🛠 Bot
+          "🛠 Bot is in *maintenance mode*. Try again later."
