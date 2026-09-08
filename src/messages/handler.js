@@ -422,16 +422,31 @@ export async function messageHandler(params) {
 
     if (!flagCheck?.ok) {
       if (
-        flagCheck?.flag ===
-          "maintenance" &&
-        privileged
-      ) {
-        // Privileged user may continue.
-      } else if (
-        flagCheck?.flag ===
-        "maintenance"
-      ) {
-        await sendError(
-          conn,
-          message.from,
-          "🛠 Bot is in *maintenance mode*. Try again later."
+        const flagCheck = await checkCommandFlag(name);
+
+if (!flagCheck?.ok) {
+  if (
+    flagCheck?.flag === "maintenance" &&
+    privileged
+  ) {
+    // Privileged user may continue.
+  } else if (
+    flagCheck?.flag === "maintenance"
+  ) {
+    await sendError(
+      conn,
+      message.from,
+      "🛠 Bot is in maintenance mode. Try again later."
+    );
+
+    return;
+  } else {
+    await sendError(
+      conn,
+      message.from,
+      `⚠️ Feature ${flagCheck?.flag || "unknown"} is disabled.`
+    );
+
+    return;
+  }
+}
