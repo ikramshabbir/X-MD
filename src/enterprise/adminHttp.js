@@ -942,11 +942,18 @@ export function startAdminHttp() {
 
             try {
 
-              const result =
-  await requestPortalPairing(
-    number,
-    `portal-${session}`
-  );
+const result =
+  await requestPortalPairing(number);
+
+return json(
+  res,
+  200,
+  {
+    ok: true,
+    code: result.code,
+    sessionId: result.sessionId
+  }
+);
 
 return json(
   res,
