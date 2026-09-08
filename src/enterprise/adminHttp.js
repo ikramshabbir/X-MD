@@ -34,22 +34,13 @@ import {
 
 let server = null;
 
-/*
- * Portal PIN.
- *
- * Railway Variables mein:
- *
- * PORTAL_PIN=123456
- *
- * Isay apni marzi ka strong PIN rakhein.
- */
+/* =========================
+   Environment
+========================= */
+
 const portalPin =
   process.env.PORTAL_PIN || "";
 
-/*
- * Admin token sirf backend/API protection ke liye.
- * Browser ko kabhi nahi bheja jata.
- */
 const adminToken =
   process.env.ADMIN_HTTP_TOKEN || "";
 
@@ -83,6 +74,7 @@ function json(res, code, body) {
   res.writeHead(code, {
     "Content-Type":
       "application/json; charset=utf-8",
+
     "Cache-Control":
       "no-store",
   });
@@ -97,6 +89,7 @@ function html(res, body) {
   res.writeHead(200, {
     "Content-Type":
       "text/html; charset=utf-8",
+
     "Cache-Control":
       "no-store",
   });
@@ -108,14 +101,16 @@ function html(res, body) {
 function readBody(req) {
   return new Promise(
     (resolve, reject) => {
+
       let body = "";
 
       req.on("data", (chunk) => {
+
         body += chunk;
 
-        // Prevent very large requests.
         if (body.length > 10_000) {
           req.destroy();
+
           reject(
             new Error("Request too large")
           );
@@ -123,13 +118,17 @@ function readBody(req) {
       });
 
       req.on("end", () => {
+
         try {
+
           resolve(
             body
               ? JSON.parse(body)
               : {}
           );
+
         } catch {
+
           resolve({});
         }
       });
@@ -479,11 +478,16 @@ async function login() {
       .getElementById("loginBtn");
 
   if (!pin) {
-    alert("Enter Portal PIN.");
+
+    alert(
+      "Enter Portal PIN."
+    );
+
     return;
   }
 
   button.disabled = true;
+
   button.textContent =
     "Checking...";
 
@@ -510,6 +514,7 @@ async function login() {
       await response.json();
 
     if (!response.ok) {
+
       throw new Error(
         data.error ||
         "Invalid PIN"
@@ -571,6 +576,7 @@ async function requestPairing() {
     document
       .getElementById("status");
 
+
   if (!number) {
 
     alert(
@@ -580,6 +586,7 @@ async function requestPairing() {
     return;
   }
 
+
   if (!portalSession) {
 
     alert(
@@ -588,6 +595,7 @@ async function requestPairing() {
 
     return;
   }
+
 
   button.disabled = true;
 
@@ -605,6 +613,7 @@ async function requestPairing() {
 
   status.className =
     "status";
+
 
   try {
 
@@ -628,8 +637,10 @@ async function requestPairing() {
         }
       );
 
+
     const data =
       await response.json();
+
 
     if (!response.ok) {
 
@@ -639,14 +650,18 @@ async function requestPairing() {
       );
     }
 
+
     code.textContent =
       data.code || "----";
+
 
     status.textContent =
       "Enter this code in WhatsApp.";
 
+
     status.className =
       "status success";
+
 
   } catch (error) {
 
@@ -658,6 +673,7 @@ async function requestPairing() {
 
     status.className =
       "status error";
+
 
   } finally {
 
@@ -676,7 +692,7 @@ async function requestPairing() {
 
 
 /* =========================
-   Simple sessions
+   Portal Sessions
 ========================= */
 
 const portalSessions =
@@ -712,13 +728,11 @@ function validPortalSession(session) {
     return false;
   }
 
-  /*
-   * Session expires after 30 minutes.
-   */
 
   const expired =
     Date.now() - created >
     30 * 60 * 1000;
+
 
   if (expired) {
 
@@ -729,12 +743,13 @@ function validPortalSession(session) {
     return false;
   }
 
+
   return true;
 }
 
 
 /* =========================
-   Start server
+   Start HTTP Server
 ========================= */
 
 export function startAdminHttp() {
@@ -745,6 +760,7 @@ export function startAdminHttp() {
       process.env.PORT ||
       0
     );
+
 
   if (!port) {
 
@@ -825,6 +841,7 @@ export function startAdminHttp() {
 
             const body =
               await readBody(req);
+
 
             const pin =
               String(
@@ -942,28 +959,39 @@ export function startAdminHttp() {
 
             try {
 
-const result =
-  await requestPortalPairing(number);
+              /*
+               * IMPORTANT:
+               *
+               * WhatsApp session is created
+               * from the WhatsApp number.
+               *
+               * Portal login session is ONLY
+               * used for portal authentication.
+               *
+               * This allows different users
+               * to create independent sessions.
+               */
 
-return json(
-  res,
-  200,
-  {
-    ok: true,
-    code: result.code,
-    sessionId: result.sessionId
-  }
-);
+              const result =
+                await requestPortalPairing(
+                  number
+                );
 
-return json(
-  res,
-  200,
-  {
-    ok: true,
-    code: result.code,
-    sessionId: result.sessionId
-  }
-);
+
+              return json(
+                res,
+                200,
+                {
+                  ok: true,
+
+                  code:
+                    result.code,
+
+                  sessionId:
+                    result.sessionId
+                }
+              );
+
 
             } catch (err) {
 
@@ -981,7 +1009,7 @@ return json(
 
 
           /* =====================
-             Pairing status
+             Pairing Status
           ===================== */
 
           if (
@@ -1089,6 +1117,10 @@ return json(
           }
 
 
+          /* =====================
+             Metrics
+          ===================== */
+
           if (
             path === "/metrics" &&
             url.searchParams.get(
@@ -1124,6 +1156,10 @@ return json(
           }
 
 
+          /* =====================
+             Flags
+          ===================== */
+
           if (
             path === "/flags"
           ) {
@@ -1135,6 +1171,10 @@ return json(
             );
           }
 
+
+          /* =====================
+             Policies
+          ===================== */
 
           if (
             path === "/policies"
@@ -1148,6 +1188,10 @@ return json(
           }
 
 
+          /* =====================
+             Audit
+          ===================== */
+
           if (
             path === "/audit"
           ) {
@@ -1158,6 +1202,7 @@ return json(
                   "limit"
                 ) || 50
               );
+
 
             const action =
               url.searchParams.get(
@@ -1176,6 +1221,10 @@ return json(
           }
 
 
+          /* =====================
+             Not Found
+          ===================== */
+
           return json(
             res,
             404,
@@ -1185,12 +1234,14 @@ return json(
             }
           );
 
+
         } catch (err) {
 
           console.error(
             "[admin-http]",
             err
           );
+
 
           return json(
             res,
@@ -1229,6 +1280,10 @@ return json(
   return server;
 }
 
+
+/* =========================
+   Stop HTTP Server
+========================= */
 
 export function stopAdminHttp() {
 
