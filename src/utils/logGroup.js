@@ -1,97 +1,156 @@
 /**
- * Bot system log group — onboarding + internal logs only.
- * Safe version: does NOT auto-create WhatsApp groups.
+ * X-MD System Log Group
+ *
+ * IMPORTANT:
+ * - Automatically creates NO WhatsApp group.
+ * - Uses an existing saved log group.
+ * - Prevents the "missing <group> node" error caused by groupCreate().
+ * - System errors are kept away from normal user chats.
  */
 
 import { kvGet, kvSet } from "../database/botKv.js";
-import { getOwnerNumbers, normalizeNumber } from "./access.js";
+import { getOwnerNumbers } from "./access.js";
 
 const LOG_GROUP_KEY = "log_group_jid";
 const SETUP_DONE_KEY = "setup_done";
 
 let connRef = null;
+
 let sendQueue = Promise.resolve();
 let lastSendAt = 0;
 
 const MIN_GAP_MS = 1500;
 
+
+/* =========================
+   Connection
+========================= */
+
 export function attachLogGroupConn(conn) {
   connRef = conn;
 }
+
+
+/* =========================
+   Log Group
+========================= */
 
 export async function getLogGroupJid() {
   return (await kvGet(LOG_GROUP_KEY)) || null;
 }
 
+
 export async function setLogGroupJid(jid) {
-  await kvSet(LOG_GROUP_KEY, jid);
+  await kvSet(
+    LOG_GROUP_KEY,
+    jid
+  );
+
   return jid;
 }
 
+
+/* =========================
+   Setup
+========================= */
+
 export async function isSetupDone() {
-  return !!(await kvGet(SETUP_DONE_KEY));
-}
-
-export async function markSetupDone(done = true) {
-  await kvSet(SETUP_DONE_KEY, !!done);
-}
-
-/**
- * Synchronous check is intentionally conservative.
- */
-export function isLogGroup(jid) {
-  return false;
-}
-
-export async function isLogGroupAsync(jid) {
-  const log = await getLogGroupJid();
-  return !!(log && jid === log);
-}
-
-function ownerJids() {
-  return getOwnerNumbers().map(
-    (n) => `${n}@s.whatsapp.net`
+  return !!(
+    await kvGet(
+      SETUP_DONE_KEY
+    )
   );
 }
 
-function botBareJid(conn) {
-  const id = conn?.user?.id;
 
-  if (!id) return null;
-
-  return id.replace(/:\d+@/, "@");
+export async function markSetupDone(
+  done = true
+) {
+  await kvSet(
+    SETUP_DONE_KEY,
+    !!done
+  );
 }
 
+
+/* =========================
+   Log Group Check
+========================= */
+
+export function isLogGroup(jid) {
+  // Synchronous check is intentionally
+  // conservative.
+  return false;
+}
+
+
+export async function isLogGroupAsync(jid) {
+  const logGroup =
+    await getLogGroupJid();
+
+  return !!(
+    logGroup &&
+    jid === logGroup
+  );
+}
+
+
+/* =========================
+   Owner Numbers
+========================= */
+
+function ownerJids() {
+  return getOwnerNumbers().map(
+    (n) =>
+      `${n}@s.whatsapp.net`
+  );
+}
+
+
+/* =========================
+   Ensure Log Group
+========================= */
+
 /**
- * Ensure system log group.
+ * Uses an existing log group.
  *
  * IMPORTANT:
- * We no longer call conn.groupCreate().
+ * We DO NOT call:
  *
- * Baileys 7 rc13 can return an invalid group metadata
- * response on some WhatsApp accounts, causing:
+ * conn.groupCreate()
  *
- * "Invalid group metadata response: missing <group> node"
+ * This prevents:
  *
- * The bot will continue normally without an automatic
- * system group.
- *
- * To use a log group:
- * 1. Create a WhatsApp group manually.
- * 2. Add the bot.
- * 3. Set the group using #setlog if supported.
+ * "Invalid group metadata response:
+ * missing <group> node"
  */
-export async function ensureLogGroup(conn) {
+export async function ensureLogGroup(
+  conn
+) {
   attachLogGroupConn(conn);
 
-  const jid = await getLogGroupJid();
+  const jid =
+    await getLogGroupJid();
+
 
   /*
-   * Existing saved log group.
+   * Existing saved group.
    */
   if (jid) {
+
     try {
-      await conn.groupMetadata(jid);
+
+      /*
+       * Verify that the group
+       * can still be read.
+       */
+      await conn.groupMetadata(
+        jid
+      );
+
+      console.log(
+        `[log-group] Using existing log group: ${jid}`
+      );
 
       return {
         jid,
@@ -101,30 +160,38 @@ export async function ensureLogGroup(conn) {
 
     } catch (err) {
 
+      /*
+       * Do NOT create a new group.
+       */
       console.warn(
-        "[log-group] Saved log group is unavailable. Clearing it."
+        "[log-group] Existing log group could not be verified:",
+        err?.message || err
       );
 
-      try {
-        await kvSet(
-          LOG_GROUP_KEY,
-          ""
-        );
-      } catch {}
+      console.warn(
+        "[log-group] Auto group creation disabled."
+      );
 
       return {
-        jid: null,
+        jid,
         created: false,
         needsManual: true,
       };
     }
   }
 
+
   /*
-   * Do NOT automatically create a group.
+   * No saved group.
+   *
+   * Do not automatically create one.
    */
   console.log(
     "[log-group] No system log group configured."
+  );
+
+  console.log(
+    "[log-group] Auto group creation is disabled."
   );
 
   console.log(
@@ -132,8 +199,9 @@ export async function ensureLogGroup(conn) {
   );
 
   console.log(
-    "[log-group] Then use the bot's #setlog command if available."
+    "[log-group] Then configure it with the bot's log-group command."
   );
+
 
   return {
     jid: null,
@@ -142,14 +210,17 @@ export async function ensureLogGroup(conn) {
   };
 }
 
-/**
- * Send a system message to the log group only.
- */
+
+/* =========================
+   System Logging
+========================= */
+
 export async function systemLog(
   level,
   message,
   detail
 ) {
+
   const text =
     formatSystemLine(
       level,
@@ -157,22 +228,36 @@ export async function systemLog(
       detail
     );
 
+
   /*
-   * Always mirror to console.
+   * Always show logs
+   * in Railway console.
    */
   if (level === "error") {
+
     console.error(text);
-  } else if (level === "warn") {
+
+  } else if (
+    level === "warn"
+  ) {
+
     console.warn(text);
+
   } else {
+
     console.log(text);
   }
 
+
   /*
-   * Record errors in metrics.
+   * Error metrics.
    */
-  if (level === "error") {
+  if (
+    level === "error"
+  ) {
+
     try {
+
       const {
         recordError,
       } = await import(
@@ -186,20 +271,31 @@ export async function systemLog(
     }
   }
 
+
+  /*
+   * Get configured log group.
+   */
   const jid =
     await getLogGroupJid();
 
+
   /*
-   * No log group configured.
-   * Console logging still works.
+   * No group or connection.
+   *
+   * Railway console logging
+   * still works.
    */
-  if (!jid || !connRef) {
+  if (
+    !jid ||
+    !connRef
+  ) {
     return;
   }
 
+
   /*
-   * Serialize system messages so WhatsApp
-   * is not spammed with simultaneous sends.
+   * Queue messages so we don't
+   * send too quickly to WhatsApp.
    */
   sendQueue =
     sendQueue.then(
@@ -212,7 +308,9 @@ export async function systemLog(
             lastSendAt
           );
 
+
         if (wait > 0) {
+
           await new Promise(
             (resolve) =>
               setTimeout(
@@ -221,6 +319,7 @@ export async function systemLog(
               )
           );
         }
+
 
         try {
 
@@ -244,21 +343,29 @@ export async function systemLog(
       }
     );
 
+
   return sendQueue;
 }
 
-/**
- * Format internal system log.
- */
+
+/* =========================
+   Format System Log
+========================= */
+
 function formatSystemLine(
   level,
   message,
   detail
 ) {
+
   const ts =
     new Date()
       .toISOString()
-      .slice(11, 19);
+      .slice(
+        11,
+        19
+      );
+
 
   const icon =
     level === "error"
@@ -269,8 +376,10 @@ function formatSystemLine(
       ? "🟢"
       : "ℹ️";
 
+
   let body =
     `${icon} *[${level.toUpperCase()}]* ${ts}\n${message}`;
+
 
   if (detail) {
 
@@ -279,21 +388,55 @@ function formatSystemLine(
         ? detail
         : detail?.stack ||
           detail?.message ||
-          JSON.stringify(detail);
+          safeStringify(detail);
+
 
     const clipped =
-      String(d).slice(0, 1500);
+      String(d).slice(
+        0,
+        1500
+      );
+
 
     body +=
       `\n\`\`\`\n${clipped}\n\`\`\``;
   }
 
+
   return body;
 }
 
+
+/* =========================
+   Safe JSON
+========================= */
+
+function safeStringify(
+  value
+) {
+
+  try {
+
+    return JSON.stringify(
+      value
+    );
+
+  } catch {
+
+    return String(
+      value
+    );
+  }
+}
+
+
+/* =========================
+   User Safe Error
+========================= */
+
 /**
- * User-facing safe error.
- * Never sends stack traces to users.
+ * Never sends technical
+ * stack traces to users.
  */
 export async function reportUserSafeError(
   conn,
@@ -301,14 +444,21 @@ export async function reportUserSafeError(
   userMessage,
   error
 ) {
+
+  /*
+   * Detailed error goes only
+   * to Railway/log group.
+   */
   await systemLog(
     "error",
     userMessage,
     error
   );
 
+
   /*
-   * Caller sends userMessage to the user.
-   * Detailed error remains internal.
+   * Caller is responsible for
+   * sending the generic message
+   * to the user.
    */
 }
