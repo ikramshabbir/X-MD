@@ -8,22 +8,26 @@ import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
 } from "baileys";
+
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 
 import {
   useMultiDbAuthState,
-  clearAuthState,
+  resetMultiDbAuthState,
 } from "../database/authState.js";
 
 import { serialize } from "../messages/serialize.js";
 import { messageHandler } from "../messages/handler.js";
 import { setConnection } from "../terminal/handler.js";
+
 import { groupCache, msgCache } from "../utils/cache.js";
+
 import {
   startReminderScheduler,
   stopReminderScheduler,
 } from "../utils/reminders.js";
+
 import { attachGroupParticipantEvents } from "../events/groupParticipants.js";
 import { processGroupGuards } from "../messages/groupGuards.js";
 
@@ -41,7 +45,7 @@ let latestPairingNumber = null;
 let portalPairingInProgress = false;
 
 const BASE_BACKOFF_MS = 2000;
-const MAX_BACKOFF_MS = 60_000;
+const MAX_BACKOFF_MS = 60000;
 
 function backoffDelay(attempt) {
   const exp = Math.min(
@@ -49,8 +53,7 @@ function backoffDelay(attempt) {
     BASE_BACKOFF_MS * 2 ** attempt
   );
 
-  const jitter = Math.floor(Math.random() * 500);
-  return exp + jitter;
+  return exp + Math.floor(Math.random() * 500);
 }
 
 async function getVersion() {
@@ -94,7 +97,7 @@ export function getPairingInfo() {
 }
 
 /**
- * Wait until the socket has started connecting.
+ * Wait until socket starts connecting.
  */
 async function waitForSocketReady(conn, timeout = 15000) {
   if (!conn) {
@@ -128,6 +131,7 @@ async function waitForSocketReady(conn, timeout = 15000) {
         update?.qr
       ) {
         finish();
+        return;
       }
 
       if (update?.connection === "close") {
@@ -151,16 +155,14 @@ async function waitForSocketReady(conn, timeout = 15000) {
       conn.ev.on("connection.update", onUpdate);
     } catch {
       finish(
-        new Error(
-          "Unable to monitor WhatsApp socket"
-        )
+        new Error("Unable to monitor WhatsApp socket")
       );
     }
   });
 }
 
 /**
- * Request a pairing code from the portal.
+ * Request a fresh pairing code from portal.
  */
 export async function requestPortalPairing(number) {
   const cleanNumber = String(number || "").replace(
@@ -183,9 +185,6 @@ export async function requestPortalPairing(number) {
   try {
     let conn = globalConnection;
 
-    /*
-     * Give connect() a little time to create the socket.
-     */
     for (let i = 0; i < 30 && !conn; i++) {
       await new Promise((resolve) =>
         setTimeout(resolve, 500)
@@ -206,11 +205,6 @@ export async function requestPortalPairing(number) {
       );
     }
 
-    /*
-     * Important:
-     * requestPairingCode() is called only after
-     * the socket starts connecting.
-     */
     await waitForSocketReady(conn);
 
     const code =
@@ -311,9 +305,6 @@ async function connect() {
 
     setConnection(conn);
 
-    /*
-     * Connection events.
-     */
     conn.ev.on(
       "connection.update",
       async (update) => {
@@ -323,10 +314,6 @@ async function connect() {
           qr,
         } = update;
 
-        /*
-         * QR is kept only as a fallback.
-         * Normal login should use the portal pairing code.
-         */
         if (qr) {
           console.log(
             "\n📱 QR available as fallback.\n"
@@ -337,9 +324,6 @@ async function connect() {
           });
         }
 
-        /*
-         * WhatsApp connected.
-         */
         if (connection === "open") {
           reconnectAttempt = 0;
 
@@ -410,9 +394,6 @@ async function connect() {
           }, 2500);
         }
 
-        /*
-         * Connection closed.
-         */
         if (connection === "close") {
           const statusCode =
             lastDisconnect?.error?.output
@@ -422,48 +403,39 @@ async function connect() {
             statusCode ===
             DisconnectReason.loggedOut;
 
+          stopReminderScheduler();
+
+          latestPairingCode = null;
+          latestPairingNumber = null;
+
+          if (globalConnection === conn) {
+            globalConnection = null;
+            setConnection(null);
+          }
+
+          cleanupSocket(conn);
+
           /*
-           * If WhatsApp has logged out/unlinked this
-           * session, remove the saved auth state.
-           *
-           * This prevents the old session from being
-           * reused on the next pairing request.
+           * Real WhatsApp logout/unlink.
            */
           if (isLoggedOut) {
             console.log(
               "🔓 WhatsApp session logged out/unlinked."
             );
 
-            latestPairingCode = null;
-            latestPairingNumber = null;
-
-            stopReminderScheduler();
-
-            if (globalConnection === conn) {
-              globalConnection = null;
-              setConnection(null);
-            }
-
-            cleanupSocket(conn);
-
             try {
-              await clearAuthState();
+              await resetMultiDbAuthState();
 
               console.log(
-                "🧹 Old WhatsApp authentication state cleared."
+                "🧹 Old authentication completely removed."
               );
-            } catch (authError) {
+            } catch (err) {
               console.error(
-                "❌ Failed to clear authentication state:",
-                authError?.message || authError
+                "❌ Auth reset failed:",
+                err?.message || err
               );
             }
 
-            /*
-             * Do NOT reconnect automatically after logout.
-             * The next portal pairing request will create
-             * a fresh authentication session.
-             */
             isConnecting = false;
 
             console.log(
@@ -474,21 +446,12 @@ async function connect() {
           }
 
           /*
-           * Normal temporary disconnect.
-           * Keep the saved session and reconnect.
+           * Temporary connection failure.
+           *
+           * IMPORTANT:
+           * Do not clear authentication here.
+           * This keeps the WhatsApp account safe.
            */
-          stopReminderScheduler();
-
-          cleanupSocket(conn);
-
-          if (globalConnection === conn) {
-            globalConnection = null;
-            setConnection(null);
-          }
-
-          latestPairingCode = null;
-          latestPairingNumber = null;
-
           const delay =
             backoffDelay(
               reconnectAttempt
@@ -522,40 +485,24 @@ async function connect() {
       }
     );
 
-    /*
-     * Save authentication credentials.
-     */
     conn.ev.on(
       "creds.update",
       saveCreds
     );
 
-    /*
-     * Group participant events.
-     */
-    attachGroupParticipantEvents(
-      conn
-    );
+    attachGroupParticipantEvents(conn);
 
-    /*
-     * Group cache updates.
-     */
     conn.ev.on(
       "groups.update",
       async (updates) => {
         for (const update of updates) {
           if (update.id) {
-            groupCache.delete(
-              update.id
-            );
+            groupCache.delete(update.id);
           }
         }
       }
     );
 
-    /*
-     * Message handler.
-     */
     conn.ev.on(
       "messages.upsert",
       async (m) => {
