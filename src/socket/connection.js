@@ -12,9 +12,10 @@
  */
 
 import makeWASocket, {
-  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   DisconnectReason,
   makeCacheableSignalKeyStore,
+  Browsers,
 } from "baileys";
 
 import pino from "pino";
@@ -28,11 +29,6 @@ import {
 import { serialize } from "../messages/serialize.js";
 import { messageHandler } from "../messages/handler.js";
 import { setConnection } from "../terminal/handler.js";
-
-import {
-  groupCache,
-  msgCache,
-} from "../utils/cache.js";
 
 import {
   startReminderScheduler,
@@ -61,7 +57,7 @@ let cachedVersion = null;
 
 
 /* =========================================================
- * MAPS
+ * CONNECTION MAPS
  * ======================================================= */
 
 const connections = new Map();
@@ -73,13 +69,6 @@ const pairingLocks = new Set();
 
 const manualDisconnects = new Set();
 
-/*
- * IMPORTANT:
- * This promise resolves when WhatsApp socket reaches
- * the "connecting" state.
- *
- * Pairing code must NOT wait for "open".
- */
 const pairingReadyPromises = new Map();
 
 
@@ -105,7 +94,7 @@ export function makeSessionId(number) {
 
 
 /* =========================================================
- * BAILEYS VERSION
+ * WHATSAPP WEB VERSION
  * ======================================================= */
 
 async function getBaileysVersion() {
@@ -114,89 +103,25 @@ async function getBaileysVersion() {
   }
 
   try {
-    const result = await fetchLatestBaileysVersion();
+    const result = await fetchLatestWaWebVersion();
 
     if (result?.version) {
       cachedVersion = result.version;
 
       console.log(
-        `📡 Baileys WA version: ${cachedVersion.join(".")}`
+        `📡 WhatsApp Web version: ${cachedVersion.join(".")}`
       );
 
       return cachedVersion;
     }
   } catch (error) {
     console.log(
-      "⚠️ Could not fetch latest Baileys version:",
+      "⚠️ Could not fetch WhatsApp Web version:",
       error?.message || error
     );
   }
 
-  /*
-   * Fallback.
-   * Baileys will use its supported version.
-   */
   return undefined;
-}
-
-
-/* =========================================================
- * CLEANUP
- * ======================================================= */
-
-function cleanupSocket(sessionId) {
-  connections.delete(sessionId);
-  pairingReadyPromises.delete(sessionId);
-}
-
-
-/* =========================================================
- * WAIT FOR PAIRING READY
- * ======================================================= */
-
-function waitForPairingReady(sessionId, timeout = 15000) {
-  const existing = pairingReadyPromises.get(sessionId);
-
-  if (existing) {
-    return existing;
-  }
-
-  let resolveReady;
-  let rejectReady;
-
-  const promise = new Promise((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-
-  const timer = setTimeout(() => {
-    pairingReadyPromises.delete(sessionId);
-
-    rejectReady(
-      new Error(
-        "WhatsApp socket did not enter connecting state in time"
-      )
-    );
-  }, timeout);
-
-  pairingReadyPromises.set(
-    sessionId,
-    {
-      promise,
-      resolve: () => {
-        clearTimeout(timer);
-        pairingReadyPromises.delete(sessionId);
-        resolveReady();
-      },
-      reject: (error) => {
-        clearTimeout(timer);
-        pairingReadyPromises.delete(sessionId);
-        rejectReady(error);
-      },
-    }
-  );
-
-  return promise;
 }
 
 
@@ -204,7 +129,9 @@ function waitForPairingReady(sessionId, timeout = 15000) {
  * CREATE CONNECTION
  * ======================================================= */
 
-async function createConnection(sessionId = DEFAULT_SESSION_ID) {
+async function createConnection(
+  sessionId = DEFAULT_SESSION_ID
+) {
   if (connections.has(sessionId)) {
     return connections.get(sessionId);
   }
@@ -218,13 +145,17 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
       const {
         state,
         saveCreds,
-      } = await useMultiDbAuthState(sessionId);
+      } = await useMultiDbAuthState(
+        sessionId
+      );
 
-      const version = await getBaileysVersion();
+      const version =
+        await getBaileysVersion();
 
       const socketOptions = {
         auth: {
           creds: state.creds,
+
           keys: makeCacheableSignalKeyStore(
             state.keys,
             logger
@@ -241,48 +172,58 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
 
         generateHighQualityLinkPreview: false,
 
-        browser: [
-          "X-MD",
-          "Chrome",
-          "4.0.0",
-        ],
+        /*
+         * Use canonical Baileys browser.
+         *
+         * This is important for pairing-code login.
+         */
+        browser: Browsers.macOS(
+          "Chrome"
+        ),
       };
 
       if (version) {
         socketOptions.version = version;
       }
 
-      const conn = makeWASocket(socketOptions);
+      const conn =
+        makeWASocket(
+          socketOptions
+        );
 
-      connections.set(sessionId, conn);
-
-      /*
-       * Pairing-ready promise.
-       *
-       * We resolve it on "connecting", NOT "open".
-       */
-      let pairingReadyResolve = null;
-      let pairingReadyReject = null;
-
-      const pairingReadyPromise = new Promise(
-        (resolve, reject) => {
-          pairingReadyResolve = resolve;
-          pairingReadyReject = reject;
-        }
+      connections.set(
+        sessionId,
+        conn
       );
+
+
+      /* =====================================================
+       * PAIRING READY PROMISE
+       * =================================================== */
+
+      let resolvePairing;
+      let rejectPairing;
+
+      const pairingPromise =
+        new Promise(
+          (resolve, reject) => {
+            resolvePairing = resolve;
+            rejectPairing = reject;
+          }
+        );
 
       pairingReadyPromises.set(
         sessionId,
         {
-          promise: pairingReadyPromise,
-          resolve: pairingReadyResolve,
-          reject: pairingReadyReject,
+          promise: pairingPromise,
+          resolve: resolvePairing,
+          reject: rejectPairing,
         }
       );
 
 
       /* =====================================================
-       * CREDS
+       * CREDENTIALS
        * =================================================== */
 
       conn.ev.on(
@@ -309,14 +250,18 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
            * CONNECTING
            * ------------------------------------------------ */
 
-          if (connection === "connecting") {
+          if (
+            connection ===
+            "connecting"
+          ) {
             console.log(
               `🔄 WhatsApp connecting: ${sessionId}`
             );
 
-            const ready = pairingReadyPromises.get(
-              sessionId
-            );
+            const ready =
+              pairingReadyPromises.get(
+                sessionId
+              );
 
             if (ready) {
               ready.resolve();
@@ -329,11 +274,17 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
            * ------------------------------------------------ */
 
           if (qr) {
-            if (sessionId === DEFAULT_SESSION_ID) {
+            if (
+              sessionId ===
+              DEFAULT_SESSION_ID
+            ) {
               try {
-                qrcode.generate(qr, {
-                  small: true,
-                });
+                qrcode.generate(
+                  qr,
+                  {
+                    small: true,
+                  }
+                );
               } catch {}
             }
           }
@@ -343,7 +294,10 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
            * OPEN
            * ------------------------------------------------ */
 
-          if (connection === "open") {
+          if (
+            connection ===
+            "open"
+          ) {
             console.log(
               `✅ WhatsApp connected: ${sessionId}`
             );
@@ -356,35 +310,49 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
             pairingInfo.set(
               sessionId,
               {
-                ...(pairingInfo.get(sessionId) || {}),
+                ...(
+                  pairingInfo.get(
+                    sessionId
+                  ) || {}
+                ),
+
                 sessionId,
+
                 connected: true,
+
                 code: null,
               }
             );
 
+
             /*
-             * Default bot only:
-             * terminal connection + reminders
+             * Default owner connection.
              */
             if (
-              sessionId === DEFAULT_SESSION_ID
+              sessionId ===
+              DEFAULT_SESSION_ID
             ) {
               try {
-                setConnection(conn);
+                setConnection(
+                  conn
+                );
               } catch (error) {
                 console.log(
                   "⚠️ setConnection error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
 
               try {
-                startReminderScheduler(conn);
+                startReminderScheduler(
+                  conn
+                );
               } catch (error) {
                 console.log(
                   "⚠️ Reminder scheduler error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
             }
@@ -395,38 +363,61 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
            * CLOSE
            * ------------------------------------------------ */
 
-          if (connection === "close") {
+          if (
+            connection ===
+            "close"
+          ) {
             const statusCode =
-              lastDisconnect?.error?.output?.statusCode ??
-              lastDisconnect?.error?.statusCode ??
+              lastDisconnect
+                ?.error
+                ?.output
+                ?.statusCode ??
+              lastDisconnect
+                ?.error
+                ?.statusCode ??
               null;
 
             console.log(
-              `❌ WhatsApp disconnected: ${sessionId}`,
-              statusCode
-                ? `(code ${statusCode})`
-                : ""
+              `❌ WhatsApp disconnected: ${sessionId}` +
+              (
+                statusCode
+                  ? ` (code ${statusCode})`
+                  : ""
+              )
             );
 
+
             if (
-              sessionId === DEFAULT_SESSION_ID
+              sessionId ===
+              DEFAULT_SESSION_ID
             ) {
               try {
                 stopReminderScheduler();
               } catch {}
             }
 
+
             pairingInfo.set(
               sessionId,
               {
-                ...(pairingInfo.get(sessionId) || {}),
+                ...(
+                  pairingInfo.get(
+                    sessionId
+                  ) || {}
+                ),
+
                 sessionId,
+
                 connected: false,
+
                 code:
-                  pairingInfo.get(sessionId)?.code ||
+                  pairingInfo.get(
+                    sessionId
+                  )?.code ||
                   null,
               }
             );
+
 
             const wasManual =
               manualDisconnects.has(
@@ -437,6 +428,7 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
               sessionId
             );
 
+
             connections.delete(
               sessionId
             );
@@ -446,10 +438,10 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
             );
 
 
-            /*
-             * Logged out:
-             * delete this session auth DB.
-             */
+            /* -----------------------------------------------
+             * LOGGED OUT
+             * --------------------------------------------- */
+
             if (
               statusCode ===
               DisconnectReason.loggedOut
@@ -465,7 +457,8 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
               } catch (error) {
                 console.log(
                   "⚠️ Auth reset error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
 
@@ -481,10 +474,10 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
             }
 
 
-            /*
-             * Manual disconnect:
-             * don't reconnect.
-             */
+            /* -----------------------------------------------
+             * MANUAL DISCONNECT
+             * --------------------------------------------- */
+
             if (wasManual) {
               console.log(
                 `🛑 Manual disconnect: ${sessionId}`
@@ -494,46 +487,60 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
             }
 
 
-            /*
-             * Automatic reconnect.
-             */
+            /* -----------------------------------------------
+             * AUTOMATIC RECONNECT
+             * --------------------------------------------- */
+
             const attempt =
-              (reconnectAttempts.get(
-                sessionId
-              ) || 0) + 1;
+              (
+                reconnectAttempts.get(
+                  sessionId
+                ) || 0
+              ) + 1;
 
             reconnectAttempts.set(
               sessionId,
               attempt
             );
 
-            const delay = Math.min(
-              BASE_BACKOFF_MS *
-                Math.pow(2, attempt - 1),
-              MAX_BACKOFF_MS
-            );
+            const delay =
+              Math.min(
+                BASE_BACKOFF_MS *
+                  Math.pow(
+                    2,
+                    attempt - 1
+                  ),
+                MAX_BACKOFF_MS
+              );
 
             console.log(
               `♻️ Reconnecting ${sessionId} in ${delay}ms`
             );
 
-            setTimeout(() => {
-              connect(sessionId).catch(
-                (error) => {
-                  console.log(
-                    `❌ Reconnect failed: ${sessionId}`,
-                    error?.message || error
-                  );
-                }
-              );
-            }, delay);
+
+            setTimeout(
+              () => {
+                connect(
+                  sessionId
+                ).catch(
+                  (error) => {
+                    console.log(
+                      `❌ Reconnect failed: ${sessionId}`,
+                      error?.message ||
+                        error
+                    );
+                  }
+                );
+              },
+              delay
+            );
           }
         }
       );
 
 
       /* =====================================================
-       * GROUP EVENTS
+       * GROUP PARTICIPANT EVENTS
        * =================================================== */
 
       try {
@@ -543,7 +550,8 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
       } catch (error) {
         console.log(
           "⚠️ Group participant event error:",
-          error?.message || error
+          error?.message ||
+            error
         );
       }
 
@@ -559,12 +567,21 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
           type,
         }) => {
           try {
-            if (!Array.isArray(messages)) {
+            if (
+              !Array.isArray(
+                messages
+              )
+            ) {
               return;
             }
 
-            for (const rawMessage of messages) {
-              if (!rawMessage) {
+            for (
+              const rawMessage
+              of messages
+            ) {
+              if (
+                !rawMessage
+              ) {
                 continue;
               }
 
@@ -575,9 +592,11 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
                     rawMessage
                   );
 
-                /*
-                 * Group guards.
-                 */
+
+                /* -------------------------------------------
+                 * GROUP GUARDS
+                 * ----------------------------------------- */
+
                 try {
                   await processGroupGuards(
                     conn,
@@ -585,9 +604,11 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
                   );
                 } catch {}
 
-                /*
-                 * Main command/message handler.
-                 */
+
+                /* -------------------------------------------
+                 * MAIN MESSAGE HANDLER
+                 * ----------------------------------------- */
+
                 await messageHandler(
                   conn,
                   message,
@@ -596,26 +617,26 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
                     type,
                   }
                 );
+
               } catch (error) {
                 console.log(
                   `⚠️ Message error [${sessionId}]:`,
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
             }
+
           } catch (error) {
             console.log(
               `⚠️ messages.upsert error [${sessionId}]:`,
-              error?.message || error
+              error?.message ||
+                error
             );
           }
         }
       );
 
-
-      /* =====================================================
-       * RETURN
-       * =================================================== */
 
       return conn;
 
@@ -632,10 +653,12 @@ async function createConnection(sessionId = DEFAULT_SESSION_ID) {
     }
   })();
 
+
   connectingPromises.set(
     sessionId,
     promise
   );
+
 
   try {
     return await promise;
@@ -655,7 +678,9 @@ export async function connect(
   sessionId = DEFAULT_SESSION_ID
 ) {
   if (
-    connections.has(sessionId)
+    connections.has(
+      sessionId
+    )
   ) {
     return connections.get(
       sessionId
@@ -676,9 +701,14 @@ export async function requestPortalPairing(
   number,
   suppliedSessionId = null
 ) {
-  const cleanNumber = String(
-    number || ""
-  ).replace(/\D/g, "");
+  const cleanNumber =
+    String(
+      number || ""
+    ).replace(
+      /\D/g,
+      ""
+    );
+
 
   if (!cleanNumber) {
     throw new Error(
@@ -686,9 +716,9 @@ export async function requestPortalPairing(
     );
   }
 
+
   /*
-   * If no session ID is supplied,
-   * generate one from the WhatsApp number.
+   * Each number gets its own session.
    */
   const sessionId =
     suppliedSessionId ||
@@ -698,7 +728,7 @@ export async function requestPortalPairing(
 
 
   /* -------------------------------------------------------
-   * Already paired / connected
+   * ALREADY CONNECTED
    * ----------------------------------------------------- */
 
   const existing =
@@ -716,7 +746,7 @@ export async function requestPortalPairing(
 
 
   /* -------------------------------------------------------
-   * Prevent duplicate requests
+   * DUPLICATE PAIRING REQUEST
    * ----------------------------------------------------- */
 
   if (
@@ -739,33 +769,50 @@ export async function requestPortalPairing(
       `🔐 Pairing request: ${cleanNumber}`
     );
 
-    /*
-     * Create independent socket.
-     */
+
+    /* -----------------------------------------------------
+     * CREATE SESSION SOCKET
+     * --------------------------------------------------- */
+
     const conn =
       await connect(
         sessionId
       );
 
-    /*
-     * Wait ONLY until socket reaches
-     * "connecting".
+
+    /* -----------------------------------------------------
+     * WAIT FOR CONNECTING
      *
-     * DO NOT wait for "open".
-     */
+     * DO NOT WAIT FOR OPEN.
+     * --------------------------------------------------- */
+
     const ready =
       pairingReadyPromises.get(
         sessionId
       );
 
     if (ready) {
-      await ready.promise;
+      await Promise.race([
+        ready.promise,
+
+        new Promise(
+          (_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "WhatsApp socket did not start pairing in time"
+                  )
+                ),
+              15000
+            )
+        ),
+      ]);
     }
 
 
     /*
-     * Small delay gives the WebSocket
-     * transport a moment to initialize.
+     * Give the socket a moment to initialize.
      */
     await new Promise(
       (resolve) =>
@@ -776,21 +823,23 @@ export async function requestPortalPairing(
     );
 
 
-    /*
-     * Check if it somehow became
-     * connected already.
-     */
-    if (conn.user) {
+    /* -----------------------------------------------------
+     * CHECK CONNECTION
+     * --------------------------------------------------- */
+
+    if (
+      conn.user
+    ) {
       throw new Error(
         "WhatsApp is already connected"
       );
     }
 
 
-    /*
-     * IMPORTANT:
-     * Phone number must be digits only.
-     */
+    /* -----------------------------------------------------
+     * REQUEST PAIRING CODE
+     * --------------------------------------------------- */
+
     const code =
       await conn.requestPairingCode(
         cleanNumber
@@ -804,14 +853,24 @@ export async function requestPortalPairing(
     }
 
 
+    /* -----------------------------------------------------
+     * SAVE PAIRING INFO
+     * --------------------------------------------------- */
+
     pairingInfo.set(
       sessionId,
       {
         sessionId,
-        number: cleanNumber,
+
+        number:
+          cleanNumber,
+
         code,
+
         connected: false,
-        createdAt: Date.now(),
+
+        createdAt:
+          Date.now(),
       }
     );
 
@@ -829,13 +888,9 @@ export async function requestPortalPairing(
   } catch (error) {
     console.log(
       `❌ Pairing failed [${sessionId}]:`,
-      error?.message || error
+      error?.message ||
+        error
     );
-
-    /*
-     * Don't destroy the auth DB here.
-     * The socket can reconnect / retry.
-     */
 
     throw error;
 
@@ -854,9 +909,11 @@ export async function requestPortalPairing(
 export function getConnection(
   sessionId = DEFAULT_SESSION_ID
 ) {
-  return connections.get(
-    sessionId
-  ) || null;
+  return (
+    connections.get(
+      sessionId
+    ) || null
+  );
 }
 
 
@@ -870,7 +927,7 @@ export function getConnections() {
 
 
 /* =========================================================
- * PAIRING INFO
+ * GET PAIRING INFO
  * ======================================================= */
 
 export function getPairingInfo(
@@ -905,13 +962,16 @@ export async function disconnectSession(
     return false;
   }
 
+
   console.log(
     `🛑 Disconnecting session: ${sessionId}`
   );
 
+
   manualDisconnects.add(
     sessionId
   );
+
 
   try {
     conn.end(
@@ -924,6 +984,7 @@ export async function disconnectSession(
       sessionId
     );
   }
+
 
   return true;
 }
