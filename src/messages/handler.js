@@ -1,3 +1,7 @@
+function getCommandBody(message) {
+  return String(message?.body || "").trim();
+}
+
 /* =========================================================
  * MESSAGE HANDLER
  * ========================================================= */
