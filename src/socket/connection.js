@@ -1,6 +1,6 @@
 /**
  * WhatsApp socket connection — Baileys 7.0.0-rc13
- * Supports QR, PAIRING_NUMBER login, and portal pairing-code requests.
+ * Portal-only pairing code login.
  */
 
 import makeWASocket, {
@@ -33,7 +33,7 @@ let cachedVersion = null;
 
 let latestPairingCode = null;
 let latestPairingNumber = null;
-let pairingRequested = false;
+let portalPairingInProgress = false;
 
 const BASE_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 60_000;
@@ -43,6 +43,7 @@ function backoffDelay(attempt) {
     MAX_BACKOFF_MS,
     BASE_BACKOFF_MS * 2 ** attempt
   );
+
   const jitter = Math.floor(Math.random() * 500);
   return exp + jitter;
 }
@@ -76,11 +77,6 @@ function cleanupSocket(conn) {
   } catch {}
 }
 
-function pairingNumber() {
-  const raw = (process.env.PAIRING_NUMBER || "").replace(/\D/g, "");
-  return raw || null;
-}
-
 /**
  * Information used by the web portal.
  */
@@ -93,52 +89,168 @@ export function getPairingInfo() {
 }
 
 /**
- * Request a pairing code from the currently running WhatsApp socket.
+ * Wait until the socket has started connecting.
+ */
+async function waitForSocketReady(conn, timeout = 15000) {
+  if (!conn) {
+    throw new Error("WhatsApp socket is not available");
+  }
+
+  return new Promise((resolve, reject) => {
+    let finished = false;
+
+    const finish = (error = null) => {
+      if (finished) return;
+
+      finished = true;
+
+      clearTimeout(timer);
+
+      try {
+        conn.ev?.off?.("connection.update", onUpdate);
+      } catch {}
+
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
+    const onUpdate = (update) => {
+      if (
+        update?.connection === "connecting" ||
+        update?.qr
+      ) {
+        finish();
+      }
+
+      if (update?.connection === "close") {
+        finish(
+          new Error(
+            "WhatsApp socket closed before pairing code request"
+          )
+        );
+      }
+    };
+
+    const timer = setTimeout(() => {
+      finish(
+        new Error(
+          "WhatsApp socket did not become ready in time"
+        )
+      );
+    }, timeout);
+
+    try {
+      conn.ev.on("connection.update", onUpdate);
+    } catch {
+      finish(
+        new Error(
+          "Unable to monitor WhatsApp socket"
+        )
+      );
+    }
+  });
+}
+
+/**
+ * Request a pairing code from the portal.
  */
 export async function requestPortalPairing(number) {
-  const cleanNumber = String(number || "").replace(/\D/g, "");
+  const cleanNumber = String(number || "").replace(
+    /\D/g,
+    ""
+  );
 
   if (!cleanNumber) {
     throw new Error("Invalid WhatsApp number");
   }
 
-  if (!globalConnection) {
-    throw new Error("WhatsApp socket is not ready yet");
+  if (portalPairingInProgress) {
+    throw new Error(
+      "A pairing code request is already in progress"
+    );
   }
 
-  if (globalConnection.user) {
-    throw new Error("WhatsApp is already connected");
-  }
+  portalPairingInProgress = true;
 
   try {
-    const code = await globalConnection.requestPairingCode(
-      cleanNumber
-    );
+    let conn = globalConnection;
+
+    /*
+     * Give connect() a little time to create the socket.
+     */
+    for (let i = 0; i < 30 && !conn; i++) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 500)
+      );
+
+      conn = globalConnection;
+    }
+
+    if (!conn) {
+      throw new Error(
+        "WhatsApp socket is not ready yet"
+      );
+    }
+
+    if (conn.user) {
+      throw new Error(
+        "WhatsApp is already connected"
+      );
+    }
+
+    /*
+     * Important:
+     * requestPairingCode() is called only after
+     * the socket starts connecting.
+     */
+    await waitForSocketReady(conn);
+
+    const code =
+      await conn.requestPairingCode(
+        cleanNumber
+      );
 
     latestPairingCode = code;
     latestPairingNumber = cleanNumber;
 
-    console.log("\n🔗 Portal pairing code:");
+    console.log(
+      "\n🔗 Portal pairing code:"
+    );
+
     console.log(`   ${code}`);
-    console.log(`   Number: ${cleanNumber}\n`);
+    console.log(
+      `   Number: ${cleanNumber}\n`
+    );
 
     return code;
   } catch (error) {
     latestPairingCode = null;
     latestPairingNumber = null;
+
     throw error;
+  } finally {
+    portalPairingInProgress = false;
   }
 }
 
 async function connect() {
-  if (isConnecting) return globalConnection;
+  if (isConnecting) {
+    return globalConnection;
+  }
 
   isConnecting = true;
 
   let conn = null;
 
   try {
-    const { state, saveCreds } = await useMultiDbAuthState();
+    const {
+      state,
+      saveCreds,
+    } = await useMultiDbAuthState();
+
     const version = await getVersion();
 
     const hasSession = !!(
@@ -146,14 +258,12 @@ async function connect() {
       state.creds?.registered
     );
 
-    const envPairingNumber = pairingNumber();
-    const usePairing = !hasSession && !!envPairingNumber;
-
     const socketOptions = {
       logger,
 
       auth: {
         creds: state.creds,
+
         keys: makeCacheableSignalKeyStore(
           state.keys,
           logger
@@ -161,9 +271,14 @@ async function connect() {
       },
 
       syncFullHistory: false,
-      shouldSyncHistoryMessage: () => false,
+
+      shouldSyncHistoryMessage: () =>
+        false,
+
       markOnlineOnConnect: false,
+
       generateHighQualityLinkPreview: false,
+
       emitOwnEvents: false,
 
       shouldIgnoreJid: (jid) =>
@@ -173,9 +288,13 @@ async function connect() {
 
       getMessage: async (key) => {
         const id = key?.id;
+
         if (!id) return undefined;
 
-        return msgCache.get(id) || undefined;
+        return (
+          msgCache.get(id) ||
+          undefined
+        );
       },
 
       cachedGroupMetadata: async (jid) =>
@@ -189,45 +308,12 @@ async function connect() {
     conn = makeWASocket(socketOptions);
 
     globalConnection = conn;
+
     setConnection(conn);
 
-    pairingRequested = false;
-
     /*
-     * Existing PAIRING_NUMBER environment-variable login.
+     * Connection events.
      */
-    if (usePairing) {
-      pairingRequested = true;
-
-      setTimeout(async () => {
-        try {
-          const code = await conn.requestPairingCode(
-            envPairingNumber
-          );
-
-          latestPairingCode = code;
-          latestPairingNumber = envPairingNumber;
-
-          console.log(
-            "\n🔗 Pairing code (enter on phone):\n"
-          );
-          console.log(`   ${code}\n`);
-          console.log(
-            "Phone → Linked devices → Link with phone number\n"
-          );
-        } catch (err) {
-          console.error(
-            "Pairing code failed:",
-            err?.message || err
-          );
-
-          console.log(
-            "Scan QR instead if it appears...\n"
-          );
-        }
-      }, 2000);
-    }
-
     conn.ev.on(
       "connection.update",
       async (update) => {
@@ -238,20 +324,17 @@ async function connect() {
         } = update;
 
         /*
-         * QR login.
+         * QR is kept only as a fallback.
+         * Normal login should use the portal pairing code.
          */
-        if (qr && !usePairing) {
+        if (qr) {
+          console.log(
+            "\n📱 QR available as fallback.\n"
+          );
+
           qrcode.generate(qr, {
             small: true,
           });
-
-          console.log(
-            "\n📱 Scan the QR code above to log in.\n"
-          );
-
-          console.log(
-            "(Or set PAIRING_NUMBER=yourNumberWithCountryCode and restart)\n"
-          );
         }
 
         /*
@@ -303,7 +386,9 @@ async function connect() {
               );
 
               const res =
-                await ensureLogGroup(conn);
+                await ensureLogGroup(
+                  conn
+                );
 
               if (res.needsManual) {
                 console.warn(
@@ -326,7 +411,7 @@ async function connect() {
         }
 
         /*
-         * WhatsApp disconnected.
+         * Connection closed.
          */
         if (connection === "close") {
           const statusCode =
@@ -345,6 +430,9 @@ async function connect() {
             globalConnection = null;
             setConnection(null);
           }
+
+          latestPairingCode = null;
+          latestPairingNumber = null;
 
           if (shouldReconnect) {
             const delay =
@@ -365,22 +453,21 @@ async function connect() {
             isConnecting = false;
 
             setTimeout(() => {
-              connect().catch((err) => {
-                console.error(
-                  "Reconnect failed:",
-                  err?.message || err
-                );
+              connect().catch(
+                (err) => {
+                  console.error(
+                    "Reconnect failed:",
+                    err?.message || err
+                  );
 
-                isConnecting = false;
-              });
+                  isConnecting = false;
+                }
+              );
             }, delay);
           } else {
             console.log(
               "🔓 Logged out. Restart the bot to login again."
             );
-
-            latestPairingCode = null;
-            latestPairingNumber = null;
 
             isConnecting = false;
           }
@@ -388,24 +475,40 @@ async function connect() {
       }
     );
 
+    /*
+     * Save authentication credentials.
+     */
     conn.ev.on(
       "creds.update",
       saveCreds
     );
 
-    attachGroupParticipantEvents(conn);
+    /*
+     * Group participant events.
+     */
+    attachGroupParticipantEvents(
+      conn
+    );
 
+    /*
+     * Group cache updates.
+     */
     conn.ev.on(
       "groups.update",
       async (updates) => {
         for (const update of updates) {
           if (update.id) {
-            groupCache.delete(update.id);
+            groupCache.delete(
+              update.id
+            );
           }
         }
       }
     );
 
+    /*
+     * Message handler.
+     */
     conn.ev.on(
       "messages.upsert",
       async (m) => {
@@ -457,44 +560,4 @@ async function connect() {
           await messageHandler({
             message,
             conn,
-          });
-        } catch (error) {
-          console.error(
-            "❌ Error processing message:",
-            error?.message || error
-          );
-
-          try {
-            const {
-              systemLog,
-            } = await import(
-              "../utils/logGroup.js"
-            );
-
-            await systemLog(
-              "error",
-              "messages.upsert failed",
-              error
-            );
-          } catch {}
-        }
-      }
-    );
-
-    isConnecting = false;
-
-    return conn;
-  } catch (error) {
-    isConnecting = false;
-
-    cleanupSocket(conn);
-
-    throw error;
-  }
-}
-
-export function getConnection() {
-  return globalConnection;
-}
-
-export default connect;
+         
