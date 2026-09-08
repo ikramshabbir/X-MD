@@ -1442,7 +1442,25 @@ function applyEmojiContext(text, scores) {
 /* =========================================================
  * GET AUTO REACTION
  * ========================================================= */
+function scoreRule(text, rule) {
+  let score = 0;
 
+  for (const keyword of rule.keywords || []) {
+    const k = normalizeReactionText(keyword);
+
+    if (!k) continue;
+
+    if (text.includes(k)) {
+      score += k.length >= 8 ? 5 : k.length >= 4 ? 3 : 2;
+    }
+  }
+
+  return score;
+}
+
+function getAutoReaction(text) {
+  // ...
+    }
 export function getAutoReaction(text = "") {
 
   const rawText = String(text || "");
