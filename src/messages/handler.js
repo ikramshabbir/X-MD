@@ -2,6 +2,11 @@ function getCommandBody(message) {
   return String(message?.body || "").trim();
 }
 
+function isCommandBody(body) {
+  const prefix = String(BOT_INFO?.PREFIX || ".");
+  return Boolean(prefix && body.startsWith(prefix));
+}
+
 /* =========================================================
  * MESSAGE HANDLER
  * ========================================================= */
