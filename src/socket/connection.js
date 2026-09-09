@@ -11,6 +11,7 @@
  * - Manual disconnect
  * - Detailed message debugging
  * - Anti-delete message cache
+ * - Automatic AntiDelete recovery
  */
 
 import makeWASocket, {
@@ -45,14 +46,16 @@ import {
   processGroupGuards,
 } from "../messages/groupGuards.js";
 
-/**
- * Message cache
- *
- * Used by .antidelete.
- */
 import {
   msgCache,
 } from "../utils/cache.js";
+
+/**
+ * Automatic AntiDelete handler
+ */
+import {
+  handleDeletedMessage,
+} from "../plugins/vv-antidelete.js";
 
 
 /* =========================================================
@@ -158,9 +161,14 @@ async function getBaileysVersion() {
  * Store complete Baileys WAMessage.
  *
  * IMPORTANT:
- * This must happen BEFORE the message is deleted.
+ * This happens BEFORE serialize/handler.
+ * Therefore the original message exists in cache
+ * before WhatsApp sends the delete/revoke event.
  */
-function cacheIncomingMessage(rawMessage, sessionId) {
+function cacheIncomingMessage(
+  rawMessage,
+  sessionId
+) {
 
   try {
 
@@ -170,44 +178,54 @@ function cacheIncomingMessage(rawMessage, sessionId) {
     const messageId =
       rawMessage?.key?.id;
 
-    /**
-     * Ignore incomplete messages.
-     */
+
+    /* ---------------------------------------------
+     * Ignore incomplete messages
+     * ------------------------------------------- */
+
     if (
       !remoteJid ||
       !messageId ||
       !rawMessage?.message
     ) {
+
       return;
     }
 
-    /**
-     * Do not cache protocol messages.
-     */
+
+    /* ---------------------------------------------
+     * Ignore protocol messages
+     * ------------------------------------------- */
+
     if (
       rawMessage?.message
         ?.protocolMessage
     ) {
+
       return;
     }
 
-    /**
-     * Unique cache key.
+
+    /* ---------------------------------------------
+     * Cache key
      *
      * Example:
-     * 1234567890@s.whatsapp.net:ABC123
-     */
+     * 123456789@g.us:ABC123
+     * ------------------------------------------- */
+
     const cacheKey =
       `${remoteJid}:${messageId}`;
 
-    /**
-     * Store complete original
-     * Baileys message.
-     */
+
+    /* ---------------------------------------------
+     * Store complete original message
+     * ------------------------------------------- */
+
     msgCache.set(
       cacheKey,
       rawMessage
     );
+
 
     console.log(
       `💾 MESSAGE CACHED [${sessionId}]:`,
@@ -238,7 +256,9 @@ async function createConnection(
    * ----------------------------------------------------- */
 
   if (
-    connections.has(sessionId)
+    connections.has(
+      sessionId
+    )
   ) {
 
     return connections.get(
@@ -804,7 +824,7 @@ async function createConnection(
 
 
         /* =================================================
-         * MESSAGES
+         * MESSAGES UPSERT
          * ================================================= */
 
         conn.ev.on(
@@ -858,7 +878,7 @@ async function createConnection(
                 /* -----------------------------------------
                  * ANTI-DELETE CACHE
                  *
-                 * IMPORTANT:
+                 * VERY IMPORTANT:
                  * Cache BEFORE serialize/handler.
                  * --------------------------------------- */
 
@@ -942,8 +962,6 @@ async function createConnection(
 
                   /* ---------------------------------------
                    * MAIN HANDLER
-                   *
-                   * handler.js expects ONE object.
                    * ------------------------------------- */
 
                   console.log(
@@ -980,6 +998,71 @@ async function createConnection(
 
               console.log(
                 `⚠️ messages.upsert error [${sessionId}]:`,
+                error?.stack ||
+                  error?.message ||
+                  error
+              );
+            }
+          }
+        );
+
+
+        /* =================================================
+         * ANTI-DELETE
+         *
+         * WhatsApp sends a REVOKE/DELETE update
+         * when a message is deleted.
+         *
+         * The original message was already stored
+         * by messages.upsert above.
+         * ================================================= */
+
+        conn.ev.on(
+          "messages.update",
+          async (
+            updates
+          ) => {
+
+            try {
+
+              if (
+                !Array.isArray(
+                  updates
+                )
+              ) {
+
+                return;
+              }
+
+
+              for (
+                const update
+                of updates
+              ) {
+
+                try {
+
+                  await handleDeletedMessage(
+                    conn,
+                    update,
+                    sessionId
+                  );
+
+                } catch (error) {
+
+                  console.log(
+                    `⚠️ AntiDelete update error [${sessionId}]:`,
+                    error?.stack ||
+                      error?.message ||
+                      error
+                  );
+                }
+              }
+
+            } catch (error) {
+
+              console.log(
+                `⚠️ messages.update error [${sessionId}]:`,
                 error?.stack ||
                   error?.message ||
                   error
