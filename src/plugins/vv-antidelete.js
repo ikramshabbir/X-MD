@@ -1,21 +1,20 @@
 /**
  * X-MD / X-ANSARI
- * View Once + Global AntiDelete
  *
+ * View Once + AntiDelete
+ *
+ * Commands:
  * .vv
- *   Reply to a View Once message
- *
- * .antidelete on
- *   Enable AntiDelete globally
- *
- * .antidelete off
- *   Disable AntiDelete globally
- *
  * .antidelete
- *   Show AntiDelete status
+ * .antidelete on
+ * .antidelete off
  *
- * Deleted messages are recovered ONLY in
- * the bot account's own "You" chat.
+ * AntiDelete:
+ * - Global ON/OFF
+ * - Private + groups
+ * - Reports only to bot's own WhatsApp chat
+ * - Never reposts deleted messages in original chat
+ * - Text + image + video + audio + document + sticker
  */
 
 import fs from "fs";
@@ -23,840 +22,675 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { command } from "../plugins.js";
-
+import { reply, replyFail, replyOk } from "../utils/message.js";
 import {
-  reply,
-  replyFail,
-  replyOk,
-} from "../utils/message.js";
-
-import { msgCache } from "../utils/cache.js";
-
-/* =========================================================
- * PATHS
- * ========================================================= */
+  msgCache,
+  makeMessageCacheKey,
+} from "../utils/cache.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(
-  __dirname,
-  "../database"
-);
-
-const SETTINGS_FILE = path.join(
-  DATA_DIR,
-  "antidelete.json"
-);
-
 /* =========================================================
- * SETTINGS
- * ========================================================= */
+ * DATABASE
+ * ======================================================= */
 
-let settings = {
-  enabled: false,
-};
+const DB_FILE = path.join(
+  __dirname,
+  "../database/antidelete.json"
+);
 
-function ensureDataDir() {
+function ensureDatabase() {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, {
-        recursive: true,
-      });
+    const dir = path.dirname(DB_FILE);
+
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    if (!fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(
+        DB_FILE,
+        JSON.stringify(
+          {
+            enabled: false,
+          },
+          null,
+          2
+        )
+      );
     }
   } catch (error) {
     console.log(
-      "⚠️ AntiDelete data directory error:",
+      "⚠️ AntiDelete database error:",
       error?.message || error
     );
   }
 }
 
-function loadSettings() {
+function readSettings() {
+  ensureDatabase();
+
   try {
-    ensureDataDir();
+    const data = fs.readFileSync(DB_FILE, "utf8");
+    const parsed = JSON.parse(data);
 
-    if (!fs.existsSync(SETTINGS_FILE)) {
-      return;
-    }
-
-    const raw =
-      fs.readFileSync(
-        SETTINGS_FILE,
-        "utf8"
-      );
-
-    const parsed =
-      JSON.parse(raw);
-
-    settings = {
-      enabled:
-        parsed?.enabled === true,
+    return {
+      enabled: Boolean(parsed?.enabled),
     };
   } catch (error) {
     console.log(
-      "⚠️ AntiDelete settings load error:",
+      "⚠️ AntiDelete read error:",
       error?.message || error
     );
 
-    settings = {
+    return {
       enabled: false,
     };
   }
 }
 
-function saveSettings() {
-  try {
-    ensureDataDir();
+function writeSettings(settings) {
+  ensureDatabase();
 
+  try {
     fs.writeFileSync(
-      SETTINGS_FILE,
+      DB_FILE,
       JSON.stringify(
-        settings,
+        {
+          enabled: Boolean(settings?.enabled),
+        },
         null,
         2
       )
     );
+
+    return true;
   } catch (error) {
     console.log(
-      "⚠️ AntiDelete settings save error:",
+      "⚠️ AntiDelete write error:",
       error?.message || error
     );
+
+    return false;
   }
 }
 
-loadSettings();
-
-/* =========================================================
- * EXPORTED SETTINGS
- * ========================================================= */
-
 export function isAntiDeleteEnabled() {
-  return settings.enabled === true;
+  return readSettings().enabled;
 }
 
 export function setAntiDelete(enabled) {
-  settings.enabled =
-    enabled === true;
-
-  saveSettings();
-
-  return settings.enabled;
+  return writeSettings({
+    enabled: Boolean(enabled),
+  });
 }
 
 /* =========================================================
- * DUPLICATE DELETE PROTECTION
- * ========================================================= */
+ * DELETE PROCESS LOCK
+ * ======================================================= */
 
-const processedDeletes =
-  new Map();
+const processedDeletes = new Map();
 
-const DELETE_MEMORY_MS =
-  60 * 1000;
+const DELETE_LOCK_MS = 60 * 1000;
 
-function alreadyProcessed(
-  cacheKey
-) {
-  const previous =
-    processedDeletes.get(
-      cacheKey
-    );
+function alreadyProcessed(cacheKey) {
+  if (!cacheKey) return true;
 
-  if (
-    previous &&
-    Date.now() - previous <
-      DELETE_MEMORY_MS
-  ) {
+  const now = Date.now();
+
+  for (const [key, timestamp] of processedDeletes) {
+    if (now - timestamp > DELETE_LOCK_MS) {
+      processedDeletes.delete(key);
+    }
+  }
+
+  if (processedDeletes.has(cacheKey)) {
     return true;
   }
 
-  processedDeletes.set(
-    cacheKey,
-    Date.now()
-  );
-
-  for (
-    const [
-      key,
-      time,
-    ] of processedDeletes
-  ) {
-    if (
-      Date.now() - time >
-      DELETE_MEMORY_MS
-    ) {
-      processedDeletes.delete(
-        key
-      );
-    }
-  }
+  processedDeletes.set(cacheKey, now);
 
   return false;
 }
 
 /* =========================================================
  * JID HELPERS
- * ========================================================= */
+ * ======================================================= */
 
 function cleanJid(jid) {
-  if (!jid) {
-    return null;
-  }
+  if (!jid) return null;
 
-  return String(jid).replace(
-    /:[0-9]+(?=@)/,
-    ""
-  );
+  return String(jid)
+    .replace(/:.*?(?=@)/, "")
+    .trim();
 }
 
 function jidToNumber(jid) {
-  if (!jid) {
-    return "Unknown";
-  }
+  if (!jid) return "Unknown";
 
-  const clean =
-    cleanJid(jid);
+  const clean = String(jid)
+    .split(":")[0]
+    .split("@")[0]
+    .replace(/\D/g, "");
 
-  if (!clean) {
-    return "Unknown";
-  }
+  return clean || "Unknown";
+}
 
-  return (
-    clean
-      .split("@")[0]
-      .replace(/\D/g, "") ||
-    "Unknown"
-  );
+function isGroupJid(jid) {
+  return String(jid || "").endsWith("@g.us");
 }
 
 /* =========================================================
- * BOT SELF / OWNER CHAT
- * ========================================================= */
+ * BOT SELF CHAT
+ * ======================================================= */
 
 function getOwnerChatJid(conn) {
-  const self =
-    conn?.user?.id;
+  const id =
+    conn?.user?.id ||
+    conn?.user?.jid ||
+    conn?.user?.lid ||
+    null;
 
-  if (!self) {
+  if (!id) {
+    console.log(
+      "⚠️ AntiDelete: bot self JID not available"
+    );
+
     return null;
   }
 
-  return cleanJid(self);
+  return id;
 }
 
 /* =========================================================
  * GROUP NAME
- * ========================================================= */
+ * ======================================================= */
 
-async function getGroupName(
-  conn,
-  jid
-) {
+async function getGroupName(conn, jid) {
+  if (!isGroupJid(jid)) {
+    return null;
+  }
+
   try {
-    if (
-      !jid ||
-      !String(jid).endsWith(
-        "@g.us"
-      )
-    ) {
-      return null;
-    }
+    const metadata = await conn.groupMetadata(jid);
 
-    const metadata =
-      await conn.groupMetadata(
-        jid
-      );
-
-    return (
-      metadata?.subject ||
-      "Unknown Group"
+    return metadata?.subject || jid;
+  } catch (error) {
+    console.log(
+      "⚠️ AntiDelete group metadata error:",
+      error?.message || error
     );
-  } catch {
-    return "Unknown Group";
+
+    return jid;
   }
 }
 
 /* =========================================================
- * DELETER DETECTION
- * ========================================================= */
+ * FIND DELETE ACTOR
+ * ======================================================= */
 
-function getDeleter(
-  update,
-  targetKey
-) {
-  const innerKey =
-    update?.update?.key;
+function getActorFromUpdate(update) {
+  const originalKey = update?.key || null;
+  const innerKey = update?.update?.key || null;
 
-  const protocol =
-    update?.update
-      ?.message
-      ?.protocolMessage;
-
-  /* -------------------------------------------------------
-   * Normalized Baileys revoke event
-   * ------------------------------------------------------- */
-
-  if (innerKey) {
-    const participant =
-      innerKey.participant ||
-      innerKey.participantAlt;
-
-    if (participant) {
-      return cleanJid(
-        participant
-      );
-    }
-
-    if (
-      innerKey.fromMe === true
-    ) {
-      return cleanJid(
-        innerKey.remoteJid
-      );
-    }
+  if (!originalKey) {
+    return null;
   }
 
-  /* -------------------------------------------------------
-   * Raw protocol revoke event
-   * ------------------------------------------------------- */
-
-  if (protocol?.key) {
-    const participant =
-      update?.key?.participant ||
-      update?.key?.participantAlt;
-
-    if (participant) {
-      return cleanJid(
-        participant
-      );
-    }
-
-    if (
-      update?.key?.fromMe === true
-    ) {
-      return cleanJid(
-        update.key.remoteJid
-      );
-    }
-  }
-
-  /* -------------------------------------------------------
-   * Fallback
-   * ------------------------------------------------------- */
-
-  if (
-    update?.key?.fromMe === true
-  ) {
-    return cleanJid(
-      update.key.remoteJid
+  /*
+   * GROUP
+   *
+   * In a revoke/update event the inner key can contain
+   * the participant who performed the deletion.
+   */
+  if (isGroupJid(originalKey.remoteJid)) {
+    return (
+      innerKey?.participantAlt ||
+      innerKey?.participant ||
+      originalKey?.participantAlt ||
+      originalKey?.participant ||
+      null
     );
+  }
+
+  /*
+   * PRIVATE CHAT
+   */
+  if (innerKey?.fromMe) {
+    return (
+      innerKey?.participantAlt ||
+      innerKey?.participant ||
+      innerKey?.remoteJidAlt ||
+      innerKey?.remoteJid ||
+      originalKey?.remoteJid ||
+      null
+    );
+  }
+
+  return (
+    originalKey?.remoteJidAlt ||
+    originalKey?.remoteJid ||
+    null
+  );
+}
+
+/* =========================================================
+ * MENTION
+ * ======================================================= */
+
+function makeMention(jid) {
+  if (!jid) {
+    return {
+      text: "",
+      mentions: [],
+    };
+  }
+
+  const clean = cleanJid(jid);
+
+  if (!clean) {
+    return {
+      text: "",
+      mentions: [],
+    };
+  }
+
+  return {
+    text: `@${jidToNumber(clean)}`,
+    mentions: [clean],
+  };
+}
+
+/* =========================================================
+ * MESSAGE DESCRIPTION
+ * ======================================================= */
+
+function getOriginalDescription(rawMessage) {
+  const content = rawMessage?.message;
+
+  if (!content) {
+    return "Unknown";
+  }
+
+  if (typeof content.conversation === "string") {
+    return content.conversation;
+  }
+
+  if (content.extendedTextMessage?.text) {
+    return content.extendedTextMessage.text;
+  }
+
+  if (content.imageMessage?.caption) {
+    return content.imageMessage.caption;
+  }
+
+  if (content.videoMessage?.caption) {
+    return content.videoMessage.caption;
+  }
+
+  if (content.documentMessage?.caption) {
+    return content.documentMessage.caption;
+  }
+
+  if (content.stickerMessage) {
+    return "[Sticker]";
+  }
+
+  if (content.imageMessage) {
+    return "[Image]";
+  }
+
+  if (content.videoMessage) {
+    return "[Video]";
+  }
+
+  if (content.audioMessage) {
+    return "[Audio]";
+  }
+
+  if (content.documentMessage) {
+    return "[Document]";
+  }
+
+  if (content.locationMessage) {
+    return "[Location]";
+  }
+
+  if (content.contactMessage) {
+    return "[Contact]";
+  }
+
+  return "[Message]";
+}
+
+/* =========================================================
+ * MEDIA TYPE
+ * ======================================================= */
+
+function getMediaType(rawMessage) {
+  const content = rawMessage?.message;
+
+  if (!content) {
+    return null;
+  }
+
+  if (content.imageMessage) {
+    return "image";
+  }
+
+  if (content.videoMessage) {
+    return "video";
+  }
+
+  if (content.audioMessage) {
+    return "audio";
+  }
+
+  if (content.documentMessage) {
+    return "document";
+  }
+
+  if (content.stickerMessage) {
+    return "sticker";
   }
 
   return null;
 }
 
 /* =========================================================
- * MENTION
- * ========================================================= */
+ * VIEW ONCE UNWRAP
+ * ======================================================= */
 
-function makeMention(jid) {
-  if (!jid) {
-    return {
-      text: "Unknown",
-      mentions: [],
-    };
+function unwrapViewOnce(message) {
+  if (!message) {
+    return null;
   }
 
-  return {
-    text:
-      `@${jidToNumber(jid)}`,
+  let current = message;
 
-    mentions: [jid],
-  };
+  for (let i = 0; i < 10 && current; i++) {
+    if (current.ephemeralMessage?.message) {
+      current = current.ephemeralMessage.message;
+      continue;
+    }
+
+    if (current.viewOnceMessage?.message) {
+      current = current.viewOnceMessage.message;
+      continue;
+    }
+
+    if (current.viewOnceMessageV2?.message) {
+      current = current.viewOnceMessageV2.message;
+      continue;
+    }
+
+    if (current.viewOnceMessageV2Extension?.message) {
+      current =
+        current.viewOnceMessageV2Extension.message;
+      continue;
+    }
+
+    break;
+  }
+
+  return current;
 }
 
 /* =========================================================
- * ORIGINAL MESSAGE DESCRIPTION
- * ========================================================= */
+ * FIND VIEW ONCE MEDIA
+ * ======================================================= */
 
-function getOriginalDescription(
-  message
-) {
-  if (!message) {
-    return "Unknown message";
+function findViewOnceContent(message) {
+  const unwrapped = unwrapViewOnce(message);
+
+  if (!unwrapped) {
+    return null;
   }
 
-  const content =
-    message.message ||
-    message;
-
-  if (!content) {
-    return "Unknown message";
+  if (unwrapped.imageMessage) {
+    return {
+      type: "image",
+      content: unwrapped.imageMessage,
+    };
   }
 
-  if (
-    content.conversation
-  ) {
-    return content.conversation;
+  if (unwrapped.videoMessage) {
+    return {
+      type: "video",
+      content: unwrapped.videoMessage,
+    };
   }
 
-  if (
-    content.extendedTextMessage
-      ?.text
-  ) {
-    return (
-      content
-        .extendedTextMessage
-        .text
-    );
+  if (unwrapped.audioMessage) {
+    return {
+      type: "audio",
+      content: unwrapped.audioMessage,
+    };
   }
 
-  if (
-    content.imageMessage
-  ) {
-    return (
-      content.imageMessage
-        .caption ||
-      "Image"
-    );
+  if (unwrapped.documentMessage) {
+    return {
+      type: "document",
+      content: unwrapped.documentMessage,
+    };
   }
 
-  if (
-    content.videoMessage
-  ) {
-    return (
-      content.videoMessage
-        .caption ||
-      "Video"
-    );
-  }
-
-  if (
-    content.audioMessage
-  ) {
-    return "Audio";
-  }
-
-  if (
-    content.documentMessage
-  ) {
-    return (
-      content.documentMessage
-        .fileName ||
-      "Document"
-    );
-  }
-
-  if (
-    content.stickerMessage
-  ) {
-    return "Sticker";
-  }
-
-  if (
-    content.contactMessage
-  ) {
-    return "Contact";
-  }
-
-  if (
-    content.locationMessage
-  ) {
-    return "Location";
-  }
-
-  if (
-    content.pollCreationMessage
-  ) {
-    return "Poll";
-  }
-
-  return "Media message";
+  return null;
 }
 
 /* =========================================================
  * RESEND ORIGINAL MESSAGE
- * ========================================================= */
+ * ======================================================= */
 
 async function resendRawMessage(
   conn,
-  jid,
-  original
+  ownerJid,
+  rawMessage
 ) {
-  if (
-    !conn ||
-    !jid ||
-    !original
-  ) {
+  if (!conn || !ownerJid || !rawMessage) {
     return false;
   }
 
-  const content =
-    original.message;
+  const mediaType = getMediaType(rawMessage);
 
-  if (!content) {
-    return false;
-  }
+  try {
+    const content = rawMessage?.message;
 
-  /* -------------------------------------------------------
-   * TEXT
-   * ------------------------------------------------------- */
+    /* TEXT */
+    if (typeof content?.conversation === "string") {
+      await conn.sendMessage(ownerJid, {
+        text: content.conversation,
+      });
 
-  if (
-    content.conversation
-  ) {
-    await conn.sendMessage(
-      jid,
-      {
-        text:
-          content.conversation,
-      }
-    );
+      return true;
+    }
 
-    return true;
-  }
+    /* EXTENDED TEXT */
+    if (content?.extendedTextMessage?.text) {
+      await conn.sendMessage(ownerJid, {
+        text: content.extendedTextMessage.text,
+      });
 
-  /* -------------------------------------------------------
-   * EXTENDED TEXT
-   * ------------------------------------------------------- */
+      return true;
+    }
 
-  if (
-    content.extendedTextMessage
-      ?.text
-  ) {
-    await conn.sendMessage(
-      jid,
-      {
-        text:
-          content
-            .extendedTextMessage
-            .text,
-      }
-    );
+    /* MEDIA */
+    if (mediaType) {
+      let buffer;
 
-    return true;
-  }
-
-  /* -------------------------------------------------------
-   * IMAGE
-   * ------------------------------------------------------- */
-
-  if (
-    content.imageMessage
-  ) {
-    try {
-      const buffer =
-        await conn.downloadMediaMessage(
-          original,
+      try {
+        buffer = await conn.downloadMediaMessage(
+          rawMessage,
           "buffer",
           {}
         );
+      } catch (error) {
+        console.log(
+          "⚠️ AntiDelete media download error:",
+          error?.message || error
+        );
+
+        return false;
+      }
 
       if (!buffer) {
         return false;
       }
 
-      await conn.sendMessage(
-        jid,
-        {
+      /* IMAGE */
+      if (mediaType === "image") {
+        await conn.sendMessage(ownerJid, {
           image: buffer,
           caption:
-            content
-              .imageMessage
-              .caption ||
-            "",
-        }
-      );
+            content?.imageMessage?.caption || "",
+        });
 
-      return true;
-    } catch (error) {
-      console.log(
-        "⚠️ AntiDelete image resend error:",
-        error?.message ||
-          error
-      );
-
-      return false;
-    }
-  }
-
-  /* -------------------------------------------------------
-   * VIDEO
-   * ------------------------------------------------------- */
-
-  if (
-    content.videoMessage
-  ) {
-    try {
-      const buffer =
-        await conn.downloadMediaMessage(
-          original,
-          "buffer",
-          {}
-        );
-
-      if (!buffer) {
-        return false;
+        return true;
       }
 
-      await conn.sendMessage(
-        jid,
-        {
+      /* VIDEO */
+      if (mediaType === "video") {
+        await conn.sendMessage(ownerJid, {
           video: buffer,
-
           caption:
-            content
-              .videoMessage
-              .caption ||
-            "",
+            content?.videoMessage?.caption || "",
+        });
 
-          gifPlayback:
-            content
-              .videoMessage
-              .gifPlayback ||
-            false,
-        }
-      );
-
-      return true;
-    } catch (error) {
-      console.log(
-        "⚠️ AntiDelete video resend error:",
-        error?.message ||
-          error
-      );
-
-      return false;
-    }
-  }
-
-  /* -------------------------------------------------------
-   * AUDIO
-   * ------------------------------------------------------- */
-
-  if (
-    content.audioMessage
-  ) {
-    try {
-      const buffer =
-        await conn.downloadMediaMessage(
-          original,
-          "buffer",
-          {}
-        );
-
-      if (!buffer) {
-        return false;
+        return true;
       }
 
-      await conn.sendMessage(
-        jid,
-        {
+      /* AUDIO */
+      if (mediaType === "audio") {
+        await conn.sendMessage(ownerJid, {
           audio: buffer,
-
           mimetype:
-            content
-              .audioMessage
-              .mimetype ||
-            "audio/mpeg",
-
+            content?.audioMessage?.mimetype ||
+            "audio/mp4",
           ptt:
-            content
-              .audioMessage
-              .ptt ||
-            false,
-        }
-      );
+            content?.audioMessage?.ptt === true,
+        });
 
-      return true;
-    } catch (error) {
-      console.log(
-        "⚠️ AntiDelete audio resend error:",
-        error?.message ||
-          error
-      );
-
-      return false;
-    }
-  }
-
-  /* -------------------------------------------------------
-   * DOCUMENT
-   * ------------------------------------------------------- */
-
-  if (
-    content.documentMessage
-  ) {
-    try {
-      const buffer =
-        await conn.downloadMediaMessage(
-          original,
-          "buffer",
-          {}
-        );
-
-      if (!buffer) {
-        return false;
+        return true;
       }
 
-      await conn.sendMessage(
-        jid,
-        {
+      /* DOCUMENT */
+      if (mediaType === "document") {
+        await conn.sendMessage(ownerJid, {
           document: buffer,
-
           mimetype:
-            content
-              .documentMessage
-              .mimetype ||
+            content?.documentMessage?.mimetype ||
             "application/octet-stream",
-
           fileName:
-            content
-              .documentMessage
-              .fileName ||
-            "document",
-        }
-      );
+            content?.documentMessage?.fileName ||
+            "recovered-document",
+          caption:
+            content?.documentMessage?.caption || "",
+        });
 
-      return true;
-    } catch (error) {
-      console.log(
-        "⚠️ AntiDelete document resend error:",
-        error?.message ||
-          error
-      );
-
-      return false;
-    }
-  }
-
-  /* -------------------------------------------------------
-   * STICKER
-   * ------------------------------------------------------- */
-
-  if (
-    content.stickerMessage
-  ) {
-    try {
-      const buffer =
-        await conn.downloadMediaMessage(
-          original,
-          "buffer",
-          {}
-        );
-
-      if (!buffer) {
-        return false;
+        return true;
       }
 
-      await conn.sendMessage(
-        jid,
-        {
+      /* STICKER */
+      if (mediaType === "sticker") {
+        await conn.sendMessage(ownerJid, {
           sticker: buffer,
-        }
-      );
+        });
 
-      return true;
-    } catch (error) {
-      console.log(
-        "⚠️ AntiDelete sticker resend error:",
-        error?.message ||
-          error
-      );
-
-      return false;
+        return true;
+      }
     }
-  }
 
-  return false;
+    /* FALLBACK */
+    await conn.sendMessage(ownerJid, {
+      text: getOriginalDescription(rawMessage),
+    });
+
+    return true;
+  } catch (error) {
+    console.log(
+      "⚠️ AntiDelete resend error:",
+      error?.stack ||
+        error?.message ||
+        error
+    );
+
+    return false;
+  }
 }
 
 /* =========================================================
- * EXTRACT DELETE INFORMATION
- * ========================================================= */
+ * DELETE EVENT PARSER
+ * ======================================================= */
 
-function extractDeleteInfo(
-  update
-) {
+function extractDeleteInfo(update) {
   if (!update) {
     return null;
   }
 
-  const inner =
-    update.update || {};
+  const outerKey = update?.key;
+  const innerUpdate = update?.update;
 
-  const stub =
-    inner.messageStubType;
+  const stub = innerUpdate?.messageStubType;
 
-  /* -------------------------------------------------------
-   * Normalized REVOKE
-   *
-   * update.key = deleted message
-   * update.update.key = revoke actor
-   * ------------------------------------------------------- */
-
-  if (
-    stub === "REVOKE" ||
+  const isRevoke =
     stub === 0 ||
-    String(stub).toUpperCase() ===
-      "REVOKE"
+    stub === "REVOKE" ||
+    stub === "revoke" ||
+    Boolean(
+      innerUpdate &&
+        innerUpdate.message === null &&
+        innerUpdate.key
+    );
+
+  /*
+   * NORMAL MESSAGES.UPDATE REVOKE
+   */
+  if (
+    isRevoke &&
+    outerKey?.remoteJid &&
+    outerKey?.id
   ) {
-    const targetKey =
-      update.key;
-
-    if (
-      targetKey?.remoteJid &&
-      targetKey?.id
-    ) {
-      return {
-        targetKey,
-
-        actorKey:
-          inner.key || null,
-
-        type: "REVOKE",
-      };
-    }
+    return {
+      targetKey: outerKey,
+      actorKey: innerUpdate?.key || null,
+    };
   }
 
-  /* -------------------------------------------------------
-   * Raw protocolMessage
-   * ------------------------------------------------------- */
-
+  /*
+   * PROTOCOL MESSAGE FALLBACK
+   */
   const protocol =
-    inner.message
-      ?.protocolMessage;
+    update?.update?.message?.protocolMessage ||
+    update?.message?.protocolMessage ||
+    update?.protocolMessage;
 
-  if (protocol) {
-    const type =
-      protocol.type;
+  if (
+    protocol?.type === 0 &&
+    protocol?.key?.remoteJid &&
+    protocol?.key?.id
+  ) {
+    return {
+      targetKey: protocol.key,
+      actorKey: update?.key || null,
+    };
+  }
 
-    const typeString =
-      String(
-        type || ""
-      ).toUpperCase();
-
-    const isDelete =
-      typeString ===
-        "REVOKE" ||
-      typeString ===
-        "DELETE" ||
-      type === 0;
-
-    if (
-      isDelete &&
-      protocol.key?.id
-    ) {
-      return {
-        targetKey:
-          protocol.key,
-
-        actorKey:
-          update.key || null,
-
-        type: "REVOKE",
-      };
-    }
+  /*
+   * GENERIC FALLBACK
+   */
+  if (
+    outerKey?.remoteJid &&
+    outerKey?.id &&
+    (
+      innerUpdate?.message === null ||
+      innerUpdate?.messageStubType
+    )
+  ) {
+    return {
+      targetKey: outerKey,
+      actorKey: innerUpdate?.key || null,
+    };
   }
 
   return null;
@@ -864,109 +698,113 @@ function extractDeleteInfo(
 
 /* =========================================================
  * SEND ANTIDELETE REPORT
- * ========================================================= */
+ * ======================================================= */
 
 async function sendAntiDeleteReport(
   conn,
-  original,
+  sessionId,
   targetKey,
-  deleter
+  actorKey,
+  originalMessage
 ) {
-  const ownerJid =
-    getOwnerChatJid(conn);
+  if (
+    !conn ||
+    !targetKey ||
+    !originalMessage
+  ) {
+    return false;
+  }
+
+  const ownerJid = getOwnerChatJid(conn);
 
   if (!ownerJid) {
     console.log(
-      "⚠️ AntiDelete: self JID not available"
+      `⚠️ AntiDelete owner JID unavailable [${sessionId}]`
     );
 
     return false;
   }
 
-  const remoteJid =
-    cleanJid(
-      targetKey?.remoteJid
-    );
+  const remoteJid = targetKey.remoteJid;
+  const group = isGroupJid(remoteJid);
 
-  if (!remoteJid) {
-    return false;
+  let actor = getActorFromUpdate({
+    key: targetKey,
+    update: {
+      key: actorKey,
+    },
+  });
+
+  if (!actor) {
+    actor =
+      actorKey?.participantAlt ||
+      actorKey?.participant ||
+      actorKey?.remoteJidAlt ||
+      actorKey?.remoteJid ||
+      targetKey?.participantAlt ||
+      targetKey?.participant ||
+      targetKey?.remoteJid;
   }
 
-  const isGroup =
-    remoteJid.endsWith(
-      "@g.us"
-    );
+  actor = cleanJid(actor);
 
-  const mention =
-    makeMention(
-      deleter
-    );
-
-  const groupName =
-    isGroup
-      ? await getGroupName(
-          conn,
-          remoteJid
-        )
-      : null;
-
-  const originalDescription =
-    getOriginalDescription(
-      original
-    );
+  const description =
+    getOriginalDescription(originalMessage);
 
   let report = "";
+  let mentions = [];
 
-  /* -------------------------------------------------------
-   * GROUP
-   * ------------------------------------------------------- */
+  /* =====================================================
+   * GROUP REPORT
+   * =================================================== */
 
-  if (isGroup) {
-    report =
-`🗑️ AntiDelete
-👥 ${groupName || "Unknown Group"}
-👤 User: ${mention.text}
-❌ Deleted a message
-💬 Original message: ${originalDescription}`;
+  if (group) {
+    const groupName =
+      await getGroupName(conn, remoteJid);
+
+    const mention = makeMention(actor);
+
+    mentions = mention.mentions;
+
+    report = [
+      "🗑️ AntiDelete",
+      `👥 ${groupName || "Group"}`,
+      `👤 User: ${
+        mention.text ||
+        `@${jidToNumber(actor)}`
+      }`,
+      "❌ Deleted a message",
+      `💬 Original message: ${description}`,
+    ].join("\n");
   }
 
-  /* -------------------------------------------------------
-   * PRIVATE
-   * ------------------------------------------------------- */
+  /* =====================================================
+   * PRIVATE REPORT
+   * =================================================== */
 
   else {
-    const number =
-      jidToNumber(
-        deleter ||
-          remoteJid
-      );
-
-    report =
-`🗑️ AntiDelete
-👤 User: @${number}
-❌ Deleted a message
-💬 Original message: ${originalDescription}`;
+    report = [
+      "🗑️ AntiDelete",
+      `👤 User: @${jidToNumber(
+        actor || remoteJid
+      )}`,
+      "❌ Deleted a message",
+      `💬 Original message: ${description}`,
+    ].join("\n");
   }
 
-  /* -------------------------------------------------------
-   * REPORT
-   * ------------------------------------------------------- */
+  /* =====================================================
+   * REPORT MESSAGE
+   * =================================================== */
 
   try {
-    await conn.sendMessage(
-      ownerJid,
-      {
-        text: report,
-
-        mentions:
-          deleter
-            ? [deleter]
-            : [],
-      }
-    );
+    await conn.sendMessage(ownerJid, {
+      text: report,
+      mentions,
+    });
   } catch (error) {
     console.log(
-      "⚠️ AntiDelete report error:",
+      "⚠️ AntiDelete report send error:",
       error?.stack ||
         error?.message ||
         error
@@ -975,19 +813,27 @@ async function sendAntiDeleteReport(
     return false;
   }
 
-  /* -------------------------------------------------------
+  /* =====================================================
    * ORIGINAL MESSAGE / MEDIA
-   * ------------------------------------------------------- */
+   * =================================================== */
 
   try {
-    await resendRawMessage(
+    const sent = await resendRawMessage(
       conn,
       ownerJid,
-      original
+      originalMessage
     );
+
+    if (!sent) {
+      await conn.sendMessage(ownerJid, {
+        text:
+          `📦 Recovered message:\n` +
+          description,
+      });
+    }
   } catch (error) {
     console.log(
-      "⚠️ AntiDelete original resend error:",
+      "⚠️ AntiDelete recovery error:",
       error?.stack ||
         error?.message ||
         error
@@ -999,7 +845,7 @@ async function sendAntiDeleteReport(
 
 /* =========================================================
  * HANDLE DELETED MESSAGE
- * ========================================================= */
+ * ======================================================= */
 
 export async function handleDeletedMessage(
   conn,
@@ -1007,142 +853,61 @@ export async function handleDeletedMessage(
   sessionId = "default"
 ) {
   try {
-    if (
-      !isAntiDeleteEnabled()
-    ) {
+    if (!isAntiDeleteEnabled()) {
       return false;
     }
 
-    const info =
-      extractDeleteInfo(
-        update
-      );
+    const info = extractDeleteInfo(update);
 
     if (!info) {
       return false;
     }
 
-    const targetKey =
-      info.targetKey;
+    const targetKey = info.targetKey;
 
-    if (
-      !targetKey?.remoteJid ||
-      !targetKey?.id
-    ) {
+    const cacheKey = makeMessageCacheKey(
+      sessionId,
+      targetKey.remoteJid,
+      targetKey.id
+    );
+
+    if (!cacheKey) {
       return false;
     }
 
-    const cacheKey =
-      `${targetKey.remoteJid}:${targetKey.id}`;
-
-    /* -------------------------------------------------------
-     * DUPLICATE PROTECTION
-     * ------------------------------------------------------- */
-
-    if (
-      alreadyProcessed(
-        cacheKey
-      )
-    ) {
+    if (alreadyProcessed(cacheKey)) {
       return false;
     }
 
-    /* -------------------------------------------------------
-     * GET ORIGINAL MESSAGE
-     * ------------------------------------------------------- */
+    const originalMessage =
+      msgCache.get(cacheKey);
 
-    const original =
-      msgCache.get(
-        cacheKey
-      );
-
-    if (!original) {
+    if (!originalMessage) {
       console.log(
-        `⚠️ AntiDelete original message not found [${sessionId}]:`,
+        `⚠️ AntiDelete original message not found in cache [${sessionId}]:`,
         cacheKey
       );
 
       return false;
-    }
-
-    /* -------------------------------------------------------
-     * DETECT DELETER
-     * ------------------------------------------------------- */
-
-    let deleter = null;
-
-    if (
-      info.actorKey
-    ) {
-      deleter =
-        info.actorKey
-          .participant ||
-        info.actorKey
-          .participantAlt ||
-        null;
-
-      if (
-        !deleter &&
-        info.actorKey
-          .fromMe
-      ) {
-        deleter =
-          cleanJid(
-            info.actorKey
-              .remoteJid
-          );
-      }
-    }
-
-    if (!deleter) {
-      deleter =
-        getDeleter(
-          update,
-          targetKey
-        );
-    }
-
-    /* -------------------------------------------------------
-     * PRIVATE FALLBACK
-     * ------------------------------------------------------- */
-
-    if (
-      !deleter &&
-      !String(
-        targetKey.remoteJid
-      ).endsWith(
-        "@g.us"
-      )
-    ) {
-      deleter =
-        cleanJid(
-          targetKey.remoteJid
-        );
     }
 
     console.log(
-      `🗑️ ANTIDELETE DETECTED [${sessionId}]`,
-      {
-        chat:
-          targetKey.remoteJid,
-
-        messageId:
-          targetKey.id,
-
-        deleter:
-          deleter ||
-          "unknown",
-
-        cacheKey,
-      }
+      `🗑️ DELETE DETECTED [${sessionId}]:`,
+      targetKey.remoteJid,
+      targetKey.id
     );
 
-    return await sendAntiDeleteReport(
+    await sendAntiDeleteReport(
       conn,
-      original,
+      sessionId,
       targetKey,
-      deleter
+      info.actorKey,
+      originalMessage
     );
+
+    msgCache.delete(cacheKey);
+
+    return true;
   } catch (error) {
     console.log(
       `⚠️ handleDeletedMessage error [${sessionId}]:`,
@@ -1156,320 +921,255 @@ export async function handleDeletedMessage(
 }
 
 /* =========================================================
+ * .ANTIDELETE COMMAND
+ * ======================================================= */
+
+command(
+  {
+    pattern: "antidelete",
+    desc: "Enable, disable or check AntiDelete",
+    type: "misc",
+  },
+  async (message, conn) => {
+    const args = String(
+      message?.body || ""
+    )
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .join(" ")
+      .toLowerCase();
+
+    /* ON */
+    if (
+      args === "on" ||
+      args === "enable"
+    ) {
+      setAntiDelete(true);
+
+      return replyOk(
+        conn,
+        message,
+        "AntiDelete is ON 🟢 globally."
+      );
+    }
+
+    /* OFF */
+    if (
+      args === "off" ||
+      args === "disable"
+    ) {
+      setAntiDelete(false);
+
+      return replyOk(
+        conn,
+        message,
+        "AntiDelete is OFF 🔴 globally."
+      );
+    }
+
+    /* STATUS */
+    const enabled =
+      isAntiDeleteEnabled();
+
+    return reply(
+      conn,
+      message,
+      enabled
+        ? "✅ AntiDelete is ON 🟢 globally."
+        : "❌ AntiDelete is OFF 🔴 globally."
+    );
+  }
+);
+
+/* =========================================================
  * .VV COMMAND
- * ========================================================= */
+ * ======================================================= */
 
 command(
   {
     pattern: "vv",
-
-    desc:
-      "Open View Once message",
-
+    desc: "Open View Once media",
     type: "misc",
   },
-
-  /* IMPORTANT:
-   * Handler calls command as:
-   * command.function(message, conn)
-   */
-
   async (message, conn) => {
     try {
-      const quoted =
-        message?.quoted;
+      const quoted = message?.quoted;
 
       if (!quoted) {
         return replyFail(
           conn,
           message,
-          "Reply to a View Once message."
+          "Reply to a View Once image, video, audio or document."
         );
       }
 
       const original =
-        quoted.originalMessage ||
-        quoted.message;
+        quoted?.originalMessage ||
+        quoted?.raw ||
+        null;
 
       if (!original) {
         return replyFail(
           conn,
           message,
-          "Original message not found."
+          "View Once message data was not found."
         );
       }
 
-      let viewOnceMessage =
-        original;
+      const found =
+        findViewOnceContent(
+          original?.message ||
+            original
+        );
 
-      /* ---------------------------------------------------
-       * ViewOnce V2
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .viewOnceMessageV2
-          ?.message
-      ) {
-        viewOnceMessage =
-          viewOnceMessage
-            .viewOnceMessageV2
-            .message;
-      }
-
-      /* ---------------------------------------------------
-       * ViewOnce V2 Extension
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .viewOnceMessageV2Extension
-          ?.message
-      ) {
-        viewOnceMessage =
-          viewOnceMessage
-            .viewOnceMessageV2Extension
-            .message;
-      }
-
-      /* ---------------------------------------------------
-       * Old ViewOnce
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .viewOnceMessage
-          ?.message
-      ) {
-        viewOnceMessage =
-          viewOnceMessage
-            .viewOnceMessage
-            .message;
-      }
-
-      /* ---------------------------------------------------
-       * Fake message for media download
-       * --------------------------------------------------- */
-
-      const fakeMessage = {
-        key:
-          quoted.key ||
-          message.key,
-
-        message:
-          viewOnceMessage,
-      };
-
-      const targetJid =
-        message.from;
-
-      /* ---------------------------------------------------
-       * IMAGE
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .imageMessage
-      ) {
-        const media =
-          await conn.downloadMediaMessage(
-            fakeMessage,
-            "buffer",
-            {}
-          );
-
-        if (!media) {
+      if (!found) {
+        if (
+          quoted?.messageTypeKey ===
+          "imageMessage"
+        ) {
           return replyFail(
             conn,
             message,
-            "Unable to open View Once image."
+            "View Once image data is unavailable."
           );
         }
 
-        await conn.sendMessage(
-          targetJid,
-          {
-            image: media,
+        return replyFail(
+          conn,
+          message,
+          "That is not a supported View Once media message."
+        );
+      }
 
+      let buffer;
+
+      try {
+        buffer =
+          await conn.downloadMediaMessage(
+            original,
+            "buffer",
+            {}
+          );
+      } catch (error) {
+        console.log(
+          "⚠️ VV download error:",
+          error?.stack ||
+            error?.message ||
+            error
+        );
+
+        return replyFail(
+          conn,
+          message,
+          "Failed to download the View Once media."
+        );
+      }
+
+      if (!buffer) {
+        return replyFail(
+          conn,
+          message,
+          "View Once media could not be recovered."
+        );
+      }
+
+      /* IMAGE */
+      if (found.type === "image") {
+        await conn.sendMessage(
+          message.from,
+          {
+            image: buffer,
             caption:
-              viewOnceMessage
-                .imageMessage
-                .caption ||
+              found.content?.caption ||
               "",
           },
           {
-            quoted:
-              message.key
-                ? {
-                    key:
-                      message.key,
-
-                    message:
-                      message.message,
-                  }
-                : undefined,
+            quoted: {
+              key: message.key,
+              message: message.message,
+            },
           }
         );
 
         return;
       }
 
-      /* ---------------------------------------------------
-       * VIDEO
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .videoMessage
-      ) {
-        const media =
-          await conn.downloadMediaMessage(
-            fakeMessage,
-            "buffer",
-            {}
-          );
-
-        if (!media) {
-          return replyFail(
-            conn,
-            message,
-            "Unable to open View Once video."
-          );
-        }
-
+      /* VIDEO */
+      if (found.type === "video") {
         await conn.sendMessage(
-          targetJid,
+          message.from,
           {
-            video: media,
-
+            video: buffer,
             caption:
-              viewOnceMessage
-                .videoMessage
-                .caption ||
+              found.content?.caption ||
               "",
-
-            gifPlayback:
-              viewOnceMessage
-                .videoMessage
-                .gifPlayback ||
-              false,
           },
           {
-            quoted:
-              message.key
-                ? {
-                    key:
-                      message.key,
-
-                    message:
-                      message.message,
-                  }
-                : undefined,
+            quoted: {
+              key: message.key,
+              message: message.message,
+            },
           }
         );
 
         return;
       }
 
-      /* ---------------------------------------------------
-       * TEXT
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .conversation
-      ) {
-        return replyOk(
-          conn,
-          message,
-          viewOnceMessage
-            .conversation
-        );
-      }
-
-      /* ---------------------------------------------------
-       * EXTENDED TEXT
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .extendedTextMessage
-          ?.text
-      ) {
-        return replyOk(
-          conn,
-          message,
-          viewOnceMessage
-            .extendedTextMessage
-            .text
-        );
-      }
-
-      /* ---------------------------------------------------
-       * AUDIO
-       * --------------------------------------------------- */
-
-      if (
-        viewOnceMessage
-          .audioMessage
-      ) {
-        const media =
-          await conn.downloadMediaMessage(
-            fakeMessage,
-            "buffer",
-            {}
-          );
-
-        if (!media) {
-          return replyFail(
-            conn,
-            message,
-            "Unable to open View Once audio."
-          );
-        }
-
+      /* AUDIO */
+      if (found.type === "audio") {
         await conn.sendMessage(
-          targetJid,
+          message.from,
           {
-            audio: media,
-
+            audio: buffer,
             mimetype:
-              viewOnceMessage
-                .audioMessage
-                .mimetype ||
-              "audio/mpeg",
-
+              found.content?.mimetype ||
+              "audio/mp4",
             ptt:
-              viewOnceMessage
-                .audioMessage
-                .ptt ||
-              false,
+              found.content?.ptt === true,
           },
           {
-            quoted:
-              message.key
-                ? {
-                    key:
-                      message.key,
-
-                    message:
-                      message.message,
-                  }
-                : undefined,
+            quoted: {
+              key: message.key,
+              message: message.message,
+            },
           }
         );
 
         return;
       }
 
-      /* ---------------------------------------------------
-       * UNSUPPORTED
-       * --------------------------------------------------- */
+      /* DOCUMENT */
+      if (found.type === "document") {
+        await conn.sendMessage(
+          message.from,
+          {
+            document: buffer,
+            mimetype:
+              found.content?.mimetype ||
+              "application/octet-stream",
+            fileName:
+              found.content?.fileName ||
+              "view-once-document",
+            caption:
+              found.content?.caption ||
+              "",
+          },
+          {
+            quoted: {
+              key: message.key,
+              message: message.message,
+            },
+          }
+        );
+
+        return;
+      }
 
       return replyFail(
         conn,
         message,
-        "Unsupported View Once message type."
+        "Unsupported View Once type."
       );
     } catch (error) {
       console.log(
@@ -1483,131 +1183,6 @@ command(
         conn,
         message,
         "Failed to open View Once message."
-      );
-    }
-  }
-);
-
-/* =========================================================
- * .ANTIDELETE COMMAND
- * ========================================================= */
-
-command(
-  {
-    pattern:
-      "antidelete",
-
-    desc:
-      "Enable, disable or check AntiDelete",
-
-    type:
-      "misc",
-  },
-
-  /* IMPORTANT:
-   * Handler calls:
-   * command.function(message, conn)
-   */
-
-  async (message, conn) => {
-    try {
-      const body =
-        message?.body ||
-        message?.text ||
-        message?.message
-          ?.conversation ||
-        "";
-
-      const args =
-        String(body)
-          .trim()
-          .split(/\s+/)
-          .slice(1);
-
-      const action =
-        (
-          args[0] ||
-          "status"
-        ).toLowerCase();
-
-      /* ---------------------------------------------------
-       * ON
-       * --------------------------------------------------- */
-
-      if (
-        action === "on" ||
-        action === "enable"
-      ) {
-        setAntiDelete(
-          true
-        );
-
-        return replyOk(
-          conn,
-          message,
-          "AntiDelete is now ON globally."
-        );
-      }
-
-      /* ---------------------------------------------------
-       * OFF
-       * --------------------------------------------------- */
-
-      if (
-        action === "off" ||
-        action === "disable"
-      ) {
-        setAntiDelete(
-          false
-        );
-
-        return replyOk(
-          conn,
-          message,
-          "AntiDelete is now OFF globally."
-        );
-      }
-
-      /* ---------------------------------------------------
-       * STATUS
-       * --------------------------------------------------- */
-
-      if (
-        action === "status" ||
-        action === "check"
-      ) {
-        return replyOk(
-          conn,
-          message,
-          `AntiDelete is ${
-            isAntiDeleteEnabled()
-              ? "ON 🟢"
-              : "OFF 🔴"
-          } globally.`
-        );
-      }
-
-      /* ---------------------------------------------------
-       * INVALID
-       * --------------------------------------------------- */
-
-      return replyFail(
-        conn,
-        message,
-        "Use .antidelete on, .antidelete off or .antidelete"
-      );
-    } catch (error) {
-      console.log(
-        "⚠️ .antidelete command error:",
-        error?.stack ||
-          error?.message ||
-          error
-      );
-
-      return replyFail(
-        conn,
-        message,
-        "AntiDelete command failed."
       );
     }
   }
