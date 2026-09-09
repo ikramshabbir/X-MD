@@ -12,7 +12,7 @@
  * AntiDelete:
  * - Global ON/OFF
  * - Private + groups
- * - Reports only to bot owner's "You" chat
+ * - Reports to bot owner's "You" chat
  * - Never reposts deleted messages in original chat
  * - Text + image + video + audio + document + sticker
  */
@@ -22,15 +22,24 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { command } from "../plugins.js";
-import { reply, replyFail, replyOk } from "../utils/message.js";
+import {
+  reply,
+  replyFail,
+  replyOk,
+} from "../utils/message.js";
+
 import {
   msgCache,
   makeMessageCacheKey,
 } from "../utils/cache.js";
+
 import { BOT_INFO } from "../config/constants.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename =
+  fileURLToPath(import.meta.url);
+
+const __dirname =
+  path.dirname(__filename);
 
 const DB_FILE = path.join(
   __dirname,
@@ -43,7 +52,8 @@ const DB_FILE = path.join(
 
 function ensureDatabase() {
   try {
-    const dir = path.dirname(DB_FILE);
+    const dir =
+      path.dirname(DB_FILE);
 
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, {
@@ -75,17 +85,20 @@ function readSettings() {
   ensureDatabase();
 
   try {
-    const data = fs.readFileSync(
-      DB_FILE,
-      "utf8"
-    );
+    const data =
+      fs.readFileSync(
+        DB_FILE,
+        "utf8"
+      );
 
-    const parsed = JSON.parse(data);
+    const parsed =
+      JSON.parse(data);
 
     return {
-      enabled: Boolean(
-        parsed?.enabled
-      ),
+      enabled:
+        Boolean(
+          parsed?.enabled
+        ),
     };
   } catch (error) {
     console.log(
@@ -99,7 +112,9 @@ function readSettings() {
   }
 }
 
-function writeSettings(settings) {
+function writeSettings(
+  settings
+) {
   ensureDatabase();
 
   try {
@@ -107,9 +122,10 @@ function writeSettings(settings) {
       DB_FILE,
       JSON.stringify(
         {
-          enabled: Boolean(
-            settings?.enabled
-          ),
+          enabled:
+            Boolean(
+              settings?.enabled
+            ),
         },
         null,
         2
@@ -128,12 +144,16 @@ function writeSettings(settings) {
 }
 
 export function isAntiDeleteEnabled() {
-  return readSettings().enabled;
+  return readSettings()
+    .enabled;
 }
 
-export function setAntiDelete(enabled) {
+export function setAntiDelete(
+  enabled
+) {
   return writeSettings({
-    enabled: Boolean(enabled),
+    enabled:
+      Boolean(enabled),
   });
 }
 
@@ -141,27 +161,35 @@ export function setAntiDelete(enabled) {
    DELETE LOCK
 ========================================================= */
 
-const processedDeletes = new Map();
+const processedDeletes =
+  new Map();
 
 const DELETE_LOCK_MS =
   60 * 1000;
 
-function alreadyProcessed(cacheKey) {
+function alreadyProcessed(
+  cacheKey
+) {
   if (!cacheKey) {
     return true;
   }
 
-  const now = Date.now();
+  const now =
+    Date.now();
 
-  for (const [
-    key,
-    timestamp,
-  ] of processedDeletes) {
+  for (
+    const [
+      key,
+      timestamp,
+    ] of processedDeletes
+  ) {
     if (
       now - timestamp >
       DELETE_LOCK_MS
     ) {
-      processedDeletes.delete(key);
+      processedDeletes.delete(
+        key
+      );
     }
   }
 
@@ -191,7 +219,10 @@ function cleanJid(jid) {
   }
 
   return String(jid)
-    .replace(/:.*?(?=@)/, "")
+    .replace(
+      /:.*?(?=@)/,
+      ""
+    )
     .trim();
 }
 
@@ -200,12 +231,15 @@ function jidToNumber(jid) {
     return "Unknown";
   }
 
-  const clean = String(jid)
-    .split(":")[0]
-    .split("@")[0]
-    .replace(/\D/g, "");
+  const clean =
+    String(jid)
+      .split(":")[0]
+      .split("@")[0]
+      .replace(/\D/g, "");
 
-  return clean || "Unknown";
+  return (
+    clean || "Unknown"
+  );
 }
 
 function isGroupJid(jid) {
@@ -215,19 +249,29 @@ function isGroupJid(jid) {
 }
 
 /* =========================================================
-   OWNER CHAT
+   OWNER JID
 ========================================================= */
 
-function getOwnerChatJid() {
+function getOwnerNumber() {
   const raw =
     BOT_INFO?.OWNER ||
     process.env.OWNER_NUMBER ||
     "";
 
-  const number = String(raw)
-    .split("@")[0]
-    .split(":")[0]
-    .replace(/\D/g, "");
+  const number =
+    String(raw)
+      .split("@")[0]
+      .split(":")[0]
+      .replace(/\D/g, "");
+
+  return number || null;
+}
+
+async function getOwnerChatJid(
+  conn
+) {
+  const number =
+    getOwnerNumber();
 
   if (!number) {
     console.log(
@@ -237,15 +281,104 @@ function getOwnerChatJid() {
     return null;
   }
 
-  const ownerJid =
+  const ownerPn =
     `${number}@s.whatsapp.net`;
 
   console.log(
-    "👑 AntiDelete owner JID:",
-    ownerJid
+    "👑 AntiDelete owner PN:",
+    ownerPn
   );
 
-  return ownerJid;
+  /*
+   * FIRST:
+   * Try Baileys PN -> LID mapping.
+   *
+   * This is important because the
+   * account can use @lid internally.
+   */
+  try {
+    const mapping =
+      conn
+        ?.signalRepository
+        ?.lidMapping;
+
+    if (
+      mapping &&
+      typeof mapping.getLIDForPN ===
+        "function"
+    ) {
+      const lid =
+        await mapping.getLIDForPN(
+          ownerPn
+        );
+
+      if (lid) {
+        console.log(
+          "👑 AntiDelete owner LID:",
+          lid
+        );
+
+        return lid;
+      }
+
+      console.log(
+        "ℹ️ AntiDelete: PN→LID mapping not found"
+      );
+    }
+  } catch (error) {
+    console.log(
+      "⚠️ AntiDelete PN→LID error:",
+      error?.stack ||
+        error?.message ||
+        error
+    );
+  }
+
+  /*
+   * SECOND:
+   * If OWNER_NUMBER is actually the
+   * bot's own number, use conn.user.id.
+   */
+  try {
+    const ownId =
+      conn?.user?.id ||
+      conn?.user?.jid ||
+      null;
+
+    if (ownId) {
+      const ownNumber =
+        jidToNumber(
+          ownId
+        );
+
+      if (
+        ownNumber === number
+      ) {
+        console.log(
+          "👑 AntiDelete using bot self JID:",
+          ownId
+        );
+
+        return ownId;
+      }
+    }
+  } catch (error) {
+    console.log(
+      "⚠️ AntiDelete self JID error:",
+      error?.message || error
+    );
+  }
+
+  /*
+   * THIRD:
+   * PN fallback.
+   */
+  console.log(
+    "👑 AntiDelete owner fallback:",
+    ownerPn
+  );
+
+  return ownerPn;
 }
 
 /* =========================================================
@@ -256,7 +389,9 @@ async function getGroupName(
   conn,
   jid
 ) {
-  if (!isGroupJid(jid)) {
+  if (
+    !isGroupJid(jid)
+  ) {
     return null;
   }
 
@@ -312,7 +447,9 @@ function getActorFromUpdate(
     );
   }
 
-  if (innerKey?.fromMe) {
+  if (
+    innerKey?.fromMe
+  ) {
     return (
       innerKey?.participantAlt ||
       innerKey?.participant ||
@@ -479,15 +616,21 @@ function getMediaType(
     return null;
   }
 
-  if (content.imageMessage) {
+  if (
+    content.imageMessage
+  ) {
     return "image";
   }
 
-  if (content.videoMessage) {
+  if (
+    content.videoMessage
+  ) {
     return "video";
   }
 
-  if (content.audioMessage) {
+  if (
+    content.audioMessage
+  ) {
     return "audio";
   }
 
@@ -517,7 +660,8 @@ function unwrapViewOnce(
     return null;
   }
 
-  let current = message;
+  let current =
+    message;
 
   for (
     let i = 0;
@@ -525,33 +669,39 @@ function unwrapViewOnce(
     i++
   ) {
     if (
-      current.ephemeralMessage
+      current
+        .ephemeralMessage
         ?.message
     ) {
       current =
-        current.ephemeralMessage
+        current
+          .ephemeralMessage
           .message;
 
       continue;
     }
 
     if (
-      current.viewOnceMessage
+      current
+        .viewOnceMessage
         ?.message
     ) {
       current =
-        current.viewOnceMessage
+        current
+          .viewOnceMessage
           .message;
 
       continue;
     }
 
     if (
-      current.viewOnceMessageV2
+      current
+        .viewOnceMessageV2
         ?.message
     ) {
       current =
-        current.viewOnceMessageV2
+        current
+          .viewOnceMessageV2
           .message;
 
       continue;
@@ -580,13 +730,17 @@ function findViewOnceContent(
   message
 ) {
   const unwrapped =
-    unwrapViewOnce(message);
+    unwrapViewOnce(
+      message
+    );
 
   if (!unwrapped) {
     return null;
   }
 
-  if (unwrapped.imageMessage) {
+  if (
+    unwrapped.imageMessage
+  ) {
     return {
       type: "image",
       content:
@@ -594,7 +748,9 @@ function findViewOnceContent(
     };
   }
 
-  if (unwrapped.videoMessage) {
+  if (
+    unwrapped.videoMessage
+  ) {
     return {
       type: "video",
       content:
@@ -602,7 +758,9 @@ function findViewOnceContent(
     };
   }
 
-  if (unwrapped.audioMessage) {
+  if (
+    unwrapped.audioMessage
+  ) {
     return {
       type: "audio",
       content:
@@ -624,7 +782,7 @@ function findViewOnceContent(
 }
 
 /* =========================================================
-   SEND RECOVERED MESSAGE
+   RESEND DELETED MESSAGE
 ========================================================= */
 
 async function resendRawMessage(
@@ -641,7 +799,9 @@ async function resendRawMessage(
   }
 
   const mediaType =
-    getMediaType(rawMessage);
+    getMediaType(
+      rawMessage
+    );
 
   try {
     const content =
@@ -665,14 +825,16 @@ async function resendRawMessage(
     }
 
     if (
-      content?.extendedTextMessage
+      content
+        ?.extendedTextMessage
         ?.text
     ) {
       await conn.sendMessage(
         ownerJid,
         {
           text:
-            content.extendedTextMessage
+            content
+              .extendedTextMessage
               .text,
         }
       );
@@ -695,7 +857,8 @@ async function resendRawMessage(
       } catch (error) {
         console.log(
           "⚠️ AntiDelete media download error:",
-          error?.message || error
+          error?.message ||
+            error
         );
 
         return false;
@@ -705,10 +868,9 @@ async function resendRawMessage(
         return false;
       }
 
-      /* IMAGE */
-
       if (
-        mediaType === "image"
+        mediaType ===
+        "image"
       ) {
         await conn.sendMessage(
           ownerJid,
@@ -725,10 +887,9 @@ async function resendRawMessage(
         return true;
       }
 
-      /* VIDEO */
-
       if (
-        mediaType === "video"
+        mediaType ===
+        "video"
       ) {
         await conn.sendMessage(
           ownerJid,
@@ -745,10 +906,9 @@ async function resendRawMessage(
         return true;
       }
 
-      /* AUDIO */
-
       if (
-        mediaType === "audio"
+        mediaType ===
+        "audio"
       ) {
         await conn.sendMessage(
           ownerJid,
@@ -762,14 +922,13 @@ async function resendRawMessage(
             ptt:
               content
                 ?.audioMessage
-                ?.ptt === true,
+                ?.ptt ===
+              true,
           }
         );
 
         return true;
       }
-
-      /* DOCUMENT */
 
       if (
         mediaType ===
@@ -778,7 +937,8 @@ async function resendRawMessage(
         await conn.sendMessage(
           ownerJid,
           {
-            document: buffer,
+            document:
+              buffer,
             mimetype:
               content
                 ?.documentMessage
@@ -800,8 +960,6 @@ async function resendRawMessage(
         return true;
       }
 
-      /* STICKER */
-
       if (
         mediaType ===
         "sticker"
@@ -809,15 +967,14 @@ async function resendRawMessage(
         await conn.sendMessage(
           ownerJid,
           {
-            sticker: buffer,
+            sticker:
+              buffer,
           }
         );
 
         return true;
       }
     }
-
-    /* FALLBACK */
 
     await conn.sendMessage(
       ownerJid,
@@ -952,7 +1109,9 @@ async function sendAntiDeleteReport(
   }
 
   const ownerJid =
-    getOwnerChatJid();
+    await getOwnerChatJid(
+      conn
+    );
 
   if (!ownerJid) {
     console.log(
@@ -966,7 +1125,9 @@ async function sendAntiDeleteReport(
     targetKey.remoteJid;
 
   const group =
-    isGroupJid(remoteJid);
+    isGroupJid(
+      remoteJid
+    );
 
   let actor =
     getActorFromUpdate({
@@ -987,7 +1148,8 @@ async function sendAntiDeleteReport(
       targetKey?.remoteJid;
   }
 
-  actor = cleanJid(actor);
+  actor =
+    cleanJid(actor);
 
   const description =
     getOriginalDescription(
@@ -996,8 +1158,6 @@ async function sendAntiDeleteReport(
 
   let report = "";
   let mentions = [];
-
-  /* GROUP */
 
   if (group) {
     const groupName =
@@ -1019,27 +1179,26 @@ async function sendAntiDeleteReport(
       }`,
       `👤 User: ${
         mention.text ||
-        `@${jidToNumber(actor)}`
+        `@${jidToNumber(
+          actor
+        )}`
       }`,
       "❌ Deleted a message",
       `💬 Original message: ${description}`,
     ].join("\n");
-  }
-
-  /* PRIVATE */
-
-  else {
+  } else {
     report = [
       "🗑️ AntiDelete",
       `👤 User: @${jidToNumber(
-        actor || remoteJid
+        actor ||
+          remoteJid
       )}`,
       "❌ Deleted a message",
       `💬 Original message: ${description}`,
     ].join("\n");
   }
 
-  /* REPORT */
+  /* SEND REPORT */
 
   try {
     await conn.sendMessage(
@@ -1065,7 +1224,7 @@ async function sendAntiDeleteReport(
     return false;
   }
 
-  /* RECOVER ORIGINAL */
+  /* SEND RECOVERED MESSAGE */
 
   try {
     const sent =
@@ -1103,7 +1262,7 @@ async function sendAntiDeleteReport(
 }
 
 /* =========================================================
-   HANDLE DELETED MESSAGE
+   HANDLE DELETE
 ========================================================= */
 
 export async function handleDeletedMessage(
@@ -1119,7 +1278,9 @@ export async function handleDeletedMessage(
     }
 
     const info =
-      extractDeleteInfo(update);
+      extractDeleteInfo(
+        update
+      );
 
     if (!info) {
       return false;
@@ -1140,13 +1301,17 @@ export async function handleDeletedMessage(
     }
 
     if (
-      alreadyProcessed(cacheKey)
+      alreadyProcessed(
+        cacheKey
+      )
     ) {
       return false;
     }
 
     const originalMessage =
-      msgCache.get(cacheKey);
+      msgCache.get(
+        cacheKey
+      );
 
     if (!originalMessage) {
       console.log(
@@ -1189,7 +1354,7 @@ export async function handleDeletedMessage(
 }
 
 /* =========================================================
-   .ANTIDELETE COMMAND
+   .ANTIDELETE
 ========================================================= */
 
 command(
@@ -1206,8 +1371,7 @@ command(
   ) => {
     const args =
       String(
-        message?.body ||
-          ""
+        message?.body || ""
       )
         .trim()
         .split(/\s+/)
@@ -1259,7 +1423,7 @@ command(
 );
 
 /* =========================================================
-   .VV COMMAND
+   .VV
 ========================================================= */
 
 command(
