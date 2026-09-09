@@ -1,16 +1,16 @@
 /**
- * X-MD
+ * X-MD / X-ANSARI
+ * View Once + Anti Delete
  *
+ * Commands:
  * .vv
- * ----
- * Reply to a View Once message and
- * resend it as normal media.
- *
- * .antidelete
- * -----------
- * Reply to a deleted/cached message
- * and resend the original message.
+ * .antidelete on
+ * .antidelete off
+ * .antidelete status
  */
+
+import fs from "fs";
+import path from "path";
 
 import {
   downloadContentFromMessage,
@@ -22,136 +22,343 @@ import {
   replyFail,
 } from "../utils/message.js";
 
-import {
-  msgCache,
-} from "../utils/cache.js";
+import { msgCache } from "../utils/cache.js";
+
+
+/* =========================================================
+ * ANTI DELETE SETTINGS
+ * ======================================================= */
+
+const DATA_DIR =
+  path.join(
+    process.cwd(),
+    "database"
+  );
+
+const SETTINGS_FILE =
+  path.join(
+    DATA_DIR,
+    "antidelete.json"
+  );
+
+let settings = {};
+
+
+/* ---------------------------------------------------------
+ * LOAD SETTINGS
+ * ------------------------------------------------------- */
+
+function loadSettings() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, {
+        recursive: true,
+      });
+    }
+
+    if (!fs.existsSync(SETTINGS_FILE)) {
+      fs.writeFileSync(
+        SETTINGS_FILE,
+        "{}",
+        "utf8"
+      );
+    }
+
+    const data =
+      fs.readFileSync(
+        SETTINGS_FILE,
+        "utf8"
+      );
+
+    settings =
+      data
+        ? JSON.parse(data)
+        : {};
+
+  } catch (error) {
+
+    console.log(
+      "⚠️ AntiDelete settings load error:",
+      error?.message || error
+    );
+
+    settings = {};
+  }
+}
+
+
+/* ---------------------------------------------------------
+ * SAVE SETTINGS
+ * ------------------------------------------------------- */
+
+function saveSettings() {
+  try {
+
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, {
+        recursive: true,
+      });
+    }
+
+    fs.writeFileSync(
+      SETTINGS_FILE,
+      JSON.stringify(
+        settings,
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+  } catch (error) {
+
+    console.log(
+      "⚠️ AntiDelete settings save error:",
+      error?.message || error
+    );
+  }
+}
+
+
+loadSettings();
+
+
+/* =========================================================
+ * CHAT SETTING
+ * ======================================================= */
+
+export function isAntiDeleteEnabled(
+  jid
+) {
+  if (!jid) return false;
+
+  return settings[jid] === true;
+}
+
+
+export function setAntiDelete(
+  jid,
+  enabled
+) {
+
+  if (!jid) {
+    return false;
+  }
+
+  settings[jid] =
+    Boolean(enabled);
+
+  saveSettings();
+
+  return true;
+}
 
 
 /* =========================================================
  * HELPERS
  * ======================================================= */
 
-function getQuotedKey(message) {
-  const quoted =
-    message?.quoted;
-
-  if (!quoted?.stanzaId) {
-    return null;
-  }
-
-  return {
-    remoteJid:
-      message.from,
-
-    id:
-      quoted.stanzaId,
-
-    participant:
-      quoted.participant ||
-      undefined,
-  };
-}
-
-
 function getCacheKey(
-  remoteJid,
-  id
+  jid,
+  messageId
 ) {
-  return `${remoteJid}:${id}`;
+
+  return `${jid}:${messageId}`;
 }
 
 
-function getQuotedMessage(
-  message
+function jidToNumber(
+  jid
 ) {
-  const key =
-    getQuotedKey(message);
 
-  if (!key) {
-    return null;
+  if (!jid) {
+    return "Unknown";
   }
 
-  return {
-    key,
-    cached:
-      msgCache.get(
-        getCacheKey(
-          key.remoteJid,
-          key.id
-        )
-      ),
-  };
+  return jid
+    .split(":")[0]
+    .replace(
+      "@s.whatsapp.net",
+      ""
+    )
+    .replace(
+      "@lid",
+      ""
+    );
 }
 
+
+function getMentionJid(
+  protocolKey,
+  remoteJid
+) {
+
+  if (
+    remoteJid?.endsWith("@g.us")
+  ) {
+
+    return (
+      protocolKey?.participant ||
+      protocolKey?.participantAlt ||
+      protocolKey?.remoteJid ||
+      "unknown@s.whatsapp.net"
+    );
+
+  }
+
+  return (
+    protocolKey?.participant ||
+    protocolKey?.remoteJid ||
+    remoteJid
+  );
+}
+
+
+function mentionText(
+  jid
+) {
+
+  const number =
+    jidToNumber(jid);
+
+  return `@${number}`;
+}
+
+
+/* =========================================================
+ * STREAM -> BUFFER
+ * ======================================================= */
 
 async function streamToBuffer(
   stream
 ) {
+
   const chunks = [];
 
   for await (
     const chunk of stream
   ) {
+
     chunks.push(
       Buffer.from(chunk)
     );
   }
 
-  return Buffer.concat(chunks);
+  return Buffer.concat(
+    chunks
+  );
 }
 
 
-/**
- * Download a Baileys media message.
- */
+/* =========================================================
+ * UNWRAP MESSAGE
+ * ======================================================= */
+
+function unwrapForSend(
+  content
+) {
+
+  let current =
+    content;
+
+  for (
+    let i = 0;
+    i < 10 && current;
+    i++
+  ) {
+
+    if (
+      current.ephemeralMessage
+        ?.message
+    ) {
+
+      current =
+        current
+          .ephemeralMessage
+          .message;
+
+      continue;
+    }
+
+    if (
+      current.viewOnceMessage
+        ?.message
+    ) {
+
+      current =
+        current
+          .viewOnceMessage
+          .message;
+
+      continue;
+    }
+
+    if (
+      current.viewOnceMessageV2
+        ?.message
+    ) {
+
+      current =
+        current
+          .viewOnceMessageV2
+          .message;
+
+      continue;
+    }
+
+    if (
+      current
+        .viewOnceMessageV2Extension
+        ?.message
+    ) {
+
+      current =
+        current
+          .viewOnceMessageV2Extension
+          .message;
+
+      continue;
+    }
+
+    if (
+      current.documentWithCaptionMessage
+        ?.message
+    ) {
+
+      current =
+        current
+          .documentWithCaptionMessage
+          .message;
+
+      continue;
+    }
+
+    break;
+  }
+
+  return current;
+}
+
+
+/* =========================================================
+ * DOWNLOAD MEDIA
+ * ======================================================= */
+
 async function downloadMedia(
   content,
   type
 ) {
+
   if (!content) {
-    return null;
-  }
-
-  let downloadType =
-    type;
-
-  /**
-   * Baileys media types.
-   */
-  if (
-    type === "imageMessage"
-  ) {
-    downloadType = "image";
-  }
-
-  if (
-    type === "videoMessage"
-  ) {
-    downloadType = "video";
-  }
-
-  if (
-    type === "audioMessage"
-  ) {
-    downloadType = "audio";
-  }
-
-  if (
-    type === "documentMessage"
-  ) {
-    downloadType = "document";
-  }
-
-  if (
-    type === "stickerMessage"
-  ) {
-    downloadType = "sticker";
+    throw new Error(
+      "Media content missing"
+    );
   }
 
   const stream =
     await downloadContentFromMessage(
       content,
-      downloadType
+      type
     );
 
   return streamToBuffer(
@@ -161,99 +368,75 @@ async function downloadMedia(
 
 
 /* =========================================================
- * SEND NORMAL MESSAGE
+ * RESEND ORIGINAL MESSAGE
  * ======================================================= */
 
-async function resendRawMessage(
+export async function resendRawMessage(
   conn,
   jid,
   rawMessage
 ) {
-  if (!rawMessage) {
-    return false;
+
+  if (!conn) {
+    throw new Error(
+      "Connection missing"
+    );
   }
 
-  /**
-   * Unwrap common WhatsApp wrappers.
-   */
+  if (!jid) {
+    throw new Error(
+      "Chat JID missing"
+    );
+  }
+
   let content =
     rawMessage?.message ||
     rawMessage;
 
-  if (
-    content?.ephemeralMessage
-      ?.message
-  ) {
-    content =
+  content =
+    unwrapForSend(
       content
-        .ephemeralMessage
-        .message;
+    );
+
+  if (!content) {
+    throw new Error(
+      "Original message missing"
+    );
   }
 
-  if (
-    content?.viewOnceMessage
-      ?.message
-  ) {
-    content =
-      content
-        .viewOnceMessage
-        .message;
-  }
-
-  if (
-    content?.viewOnceMessageV2
-      ?.message
-  ) {
-    content =
-      content
-        .viewOnceMessageV2
-        .message;
-  }
-
-  if (
-    content?.viewOnceMessageV2Extension
-      ?.message
-  ) {
-    content =
-      content
-        .viewOnceMessageV2Extension
-        .message;
-  }
 
   /* -------------------------------------------------------
    * TEXT
    * ----------------------------------------------------- */
 
   if (
-    content?.conversation
+    content.conversation
   ) {
-    await conn.sendMessage(
+
+    return conn.sendMessage(
       jid,
       {
         text:
           content.conversation,
       }
     );
-
-    return true;
   }
 
 
   if (
-    content?.extendedTextMessage
+    content.extendedTextMessage
   ) {
-    const msg =
-      content.extendedTextMessage;
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         text:
-          msg.text || "",
+          content
+            .extendedTextMessage
+            .text ||
+          "",
       }
     );
-
-    return true;
   }
 
 
@@ -262,29 +445,34 @@ async function resendRawMessage(
    * ----------------------------------------------------- */
 
   if (
-    content?.imageMessage
+    content.imageMessage
   ) {
-    const msg =
-      content.imageMessage;
 
-    const buffer =
+    const media =
       await downloadMedia(
-        msg,
-        "imageMessage"
+        content.imageMessage,
+        "image"
       );
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         image:
-          buffer,
+          media,
 
         caption:
-          msg.caption || "",
+          content
+            .imageMessage
+            .caption ||
+          undefined,
+
+        mimetype:
+          content
+            .imageMessage
+            .mimetype ||
+          undefined,
       }
     );
-
-    return true;
   }
 
 
@@ -293,29 +481,34 @@ async function resendRawMessage(
    * ----------------------------------------------------- */
 
   if (
-    content?.videoMessage
+    content.videoMessage
   ) {
-    const msg =
-      content.videoMessage;
 
-    const buffer =
+    const media =
       await downloadMedia(
-        msg,
-        "videoMessage"
+        content.videoMessage,
+        "video"
       );
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         video:
-          buffer,
+          media,
 
         caption:
-          msg.caption || "",
+          content
+            .videoMessage
+            .caption ||
+          undefined,
+
+        mimetype:
+          content
+            .videoMessage
+            .mimetype ||
+          undefined,
       }
     );
-
-    return true;
   }
 
 
@@ -324,33 +517,35 @@ async function resendRawMessage(
    * ----------------------------------------------------- */
 
   if (
-    content?.audioMessage
+    content.audioMessage
   ) {
-    const msg =
-      content.audioMessage;
 
-    const buffer =
+    const media =
       await downloadMedia(
-        msg,
-        "audioMessage"
+        content.audioMessage,
+        "audio"
       );
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         audio:
-          buffer,
+          media,
 
         mimetype:
-          msg.mimetype ||
+          content
+            .audioMessage
+            .mimetype ||
           "audio/mpeg",
 
         ptt:
-          Boolean(msg.ptt),
+          Boolean(
+            content
+              .audioMessage
+              .ptt
+          ),
       }
     );
-
-    return true;
   }
 
 
@@ -359,37 +554,40 @@ async function resendRawMessage(
    * ----------------------------------------------------- */
 
   if (
-    content?.documentMessage
+    content.documentMessage
   ) {
-    const msg =
-      content.documentMessage;
 
-    const buffer =
+    const media =
       await downloadMedia(
-        msg,
-        "documentMessage"
+        content.documentMessage,
+        "document"
       );
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         document:
-          buffer,
+          media,
 
         mimetype:
-          msg.mimetype ||
+          content
+            .documentMessage
+            .mimetype ||
           "application/octet-stream",
 
         fileName:
-          msg.fileName ||
+          content
+            .documentMessage
+            .fileName ||
           "document",
 
         caption:
-          msg.caption || "",
+          content
+            .documentMessage
+            .caption ||
+          undefined,
       }
     );
-
-    return true;
   }
 
 
@@ -398,30 +596,30 @@ async function resendRawMessage(
    * ----------------------------------------------------- */
 
   if (
-    content?.stickerMessage
+    content.stickerMessage
   ) {
-    const msg =
-      content.stickerMessage;
 
-    const buffer =
+    const media =
       await downloadMedia(
-        msg,
-        "stickerMessage"
+        content.stickerMessage,
+        "sticker"
       );
 
-    await conn.sendMessage(
+    return conn.sendMessage(
       jid,
       {
         sticker:
-          buffer,
+          media,
       }
     );
-
-    return true;
   }
 
 
-  return false;
+  throw new Error(
+    `Unsupported message type: ${
+      Object.keys(content)
+    }`
+  );
 }
 
 
@@ -431,58 +629,70 @@ async function resendRawMessage(
 
 command(
   {
-    pattern: "vv",
-    fromMe: false,
+    pattern:
+      "vv",
+
+    fromMe:
+      false,
+
     desc:
-      "View a View Once message again",
-    type: "misc",
+      "Recover View Once message",
+
+    type:
+      "misc",
   },
 
-  async (message, conn) => {
-    const quoted =
-      message?.quoted;
-
-    if (!quoted) {
-      await replyFail(
-        conn,
-        message,
-        "Reply to a View Once image, video, audio or document."
-      );
-
-      return;
-    }
-
-    if (
-      !quoted.isViewOnce
-    ) {
-      await replyFail(
-        conn,
-        message,
-        "The replied message is not a View Once message."
-      );
-
-      return;
-    }
+  async (
+    message,
+    conn
+  ) => {
 
     try {
-      const sent =
-        await resendRawMessage(
-          conn,
-          message.from,
-          {
-            message:
-              quoted.originalMessage,
-          }
-        );
 
-      if (!sent) {
-        await replyFail(
+      if (!message.quoted) {
+
+        return replyFail(
           conn,
           message,
-          "I couldn't open this View Once message."
+          "❌ View Once message ko reply karke .vv bhejo."
         );
       }
+
+
+      if (
+        !message.quoted.isViewOnce
+      ) {
+
+        return replyFail(
+          conn,
+          message,
+          "❌ Ye View Once message nahi hai."
+        );
+      }
+
+
+      const original =
+        message.quoted
+          .originalMessage;
+
+      if (!original) {
+
+        return replyFail(
+          conn,
+          message,
+          "❌ View Once message data nahi mila."
+        );
+      }
+
+
+      await resendRawMessage(
+        conn,
+        message.from,
+        original
+      );
+
     } catch (error) {
+
       console.log(
         "❌ .vv error:",
         error?.stack ||
@@ -490,10 +700,10 @@ command(
           error
       );
 
-      await replyFail(
+      return replyFail(
         conn,
         message,
-        "Failed to open the View Once message."
+        "❌ View Once recover nahi ho saka."
       );
     }
   }
@@ -501,77 +711,338 @@ command(
 
 
 /* =========================================================
- * .ANTIDELETE
+ * .ANTIDELETE ON / OFF / STATUS
  * ======================================================= */
 
 command(
   {
-    pattern: "antidelete",
-    fromMe: false,
+    pattern:
+      "antidelete",
+
+    fromMe:
+      false,
+
     desc:
-      "Recover a recently deleted message",
-    type: "misc",
+      "AntiDelete on/off/status",
+
+    type:
+      "misc",
   },
 
-  async (message, conn) => {
-    const result =
-      getQuotedMessage(
-        message
-      );
-
-    if (!result) {
-      await replyFail(
-        conn,
-        message,
-        "Reply to the deleted message and send .antidelete."
-      );
-
-      return;
-    }
-
-    const {
-      key,
-      cached,
-    } = result;
-
-    if (!cached) {
-      await replyFail(
-        conn,
-        message,
-        "This message is no longer in my cache."
-      );
-
-      return;
-    }
+  async (
+    message,
+    conn,
+    match
+  ) => {
 
     try {
-      const sent =
-        await resendRawMessage(
-          conn,
-          message.from,
-          cached
-        );
 
-      if (!sent) {
-        await replyFail(
+      const args =
+        String(
+          match || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const jid =
+        message.from;
+
+
+      /* ---------------------------------------------------
+       * STATUS
+       * ------------------------------------------------- */
+
+      if (
+        !args ||
+        args === "status"
+      ) {
+
+        const enabled =
+          isAntiDeleteEnabled(
+            jid
+          );
+
+        return reply(
           conn,
           message,
-          "This message type cannot be recovered."
+          enabled
+            ? "🛡️ AntiDelete is ON for this chat."
+            : "🛡️ AntiDelete is OFF for this chat."
         );
       }
+
+
+      /* ---------------------------------------------------
+       * ON
+       * ------------------------------------------------- */
+
+      if (
+        args === "on"
+      ) {
+
+        setAntiDelete(
+          jid,
+          true
+        );
+
+        return reply(
+          conn,
+          message,
+          "✅ AntiDelete ON\n\nDeleted messages will be recovered automatically in this chat."
+        );
+      }
+
+
+      /* ---------------------------------------------------
+       * OFF
+       * ------------------------------------------------- */
+
+      if (
+        args === "off"
+      ) {
+
+        setAntiDelete(
+          jid,
+          false
+        );
+
+        return reply(
+          conn,
+          message,
+          "❌ AntiDelete OFF"
+        );
+      }
+
+
+      return reply(
+        conn,
+        message,
+        "Use:\n.antidelete on\n.antidelete off\n.antidelete status"
+      );
+
     } catch (error) {
+
       console.log(
-        "❌ .antidelete error:",
-        error?.stack ||
-          error?.message ||
+        "❌ AntiDelete command error:",
+        error?.message ||
           error
       );
 
-      await replyFail(
+      return replyFail(
         conn,
         message,
-        "Failed to recover the deleted message."
+        "❌ AntiDelete setting failed."
       );
     }
   }
 );
+
+
+/* =========================================================
+ * AUTOMATIC DELETED MESSAGE HANDLER
+ * ======================================================= */
+
+export async function handleDeletedMessage(
+  conn,
+  update,
+  sessionId
+) {
+
+  try {
+
+    const protocol =
+      update
+        ?.update
+        ?.message
+        ?.protocolMessage;
+
+    if (!protocol) {
+      return false;
+    }
+
+
+    /* -----------------------------------------------------
+     * ONLY REVOKE / DELETE
+     * --------------------------------------------------- */
+
+    const type =
+      String(
+        protocol.type || ""
+      ).toUpperCase();
+
+    if (
+      type !== "REVOKE" &&
+      type !== "DELETE"
+    ) {
+
+      return false;
+    }
+
+
+    const deletedKey =
+      protocol.key;
+
+    if (!deletedKey) {
+      return false;
+    }
+
+
+    const remoteJid =
+      deletedKey.remoteJid;
+
+    const messageId =
+      deletedKey.id;
+
+    if (
+      !remoteJid ||
+      !messageId
+    ) {
+
+      return false;
+    }
+
+
+    /* -----------------------------------------------------
+     * CHECK ON/OFF
+     * --------------------------------------------------- */
+
+    if (
+      !isAntiDeleteEnabled(
+        remoteJid
+      )
+    ) {
+
+      return false;
+    }
+
+
+    /* -----------------------------------------------------
+     * FIND ORIGINAL MESSAGE
+     * --------------------------------------------------- */
+
+    const cacheKey =
+      getCacheKey(
+        remoteJid,
+        messageId
+      );
+
+    const original =
+      msgCache.get(
+        cacheKey
+      );
+
+
+    if (!original) {
+
+      console.log(
+        `⚠️ AntiDelete cache miss [${sessionId}]:`,
+        cacheKey
+      );
+
+      return false;
+    }
+
+
+    /* -----------------------------------------------------
+     * WHO DELETED?
+     * --------------------------------------------------- */
+
+    const deleter =
+      getMentionJid(
+        deletedKey,
+        remoteJid
+      );
+
+
+    const mention =
+      mentionText(
+        deleter
+      );
+
+
+    const isGroup =
+      remoteJid.endsWith(
+        "@g.us"
+      );
+
+
+    /* -----------------------------------------------------
+     * HEADER
+     * --------------------------------------------------- */
+
+    const header =
+      isGroup
+        ? `🗑️ *AntiDelete*\n👤 User: ${mention}\n❌ Deleted a message`
+        : `🗑️ *AntiDelete*\n❌ Message deleted`;
+
+
+    /* -----------------------------------------------------
+     * SEND HEADER
+     * --------------------------------------------------- */
+
+    await conn.sendMessage(
+      remoteJid,
+      {
+        text:
+          header,
+
+        mentions:
+          isGroup
+            ? [deleter]
+            : [],
+      }
+    );
+
+
+    /* -----------------------------------------------------
+     * SEND ORIGINAL
+     * --------------------------------------------------- */
+
+    try {
+
+      await resendRawMessage(
+        conn,
+        remoteJid,
+        original
+      );
+
+    } catch (mediaError) {
+
+      console.log(
+        `⚠️ AntiDelete resend error [${sessionId}]:`,
+        mediaError?.message ||
+          mediaError
+      );
+
+      await conn.sendMessage(
+        remoteJid,
+        {
+          text:
+            `💬 Original message recover nahi ho saka.\n\nReason: ${
+              mediaError?.message ||
+              "Unknown error"
+            }`,
+        }
+      );
+    }
+
+
+    console.log(
+      `🛡️ AntiDelete recovered [${sessionId}]:`,
+      cacheKey
+    );
+
+    return true;
+
+  } catch (error) {
+
+    console.log(
+      `❌ AntiDelete handler error [${sessionId}]:`,
+      error?.stack ||
+        error?.message ||
+        error
+    );
+
+    return false;
+  }
+}
