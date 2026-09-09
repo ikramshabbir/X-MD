@@ -46,7 +46,14 @@ import {
   processGroupGuards,
 } from "../messages/groupGuards.js";
 
-import { msgCache } from "../utils/cache.js";
+/* =========================================================
+ * ANTI-DELETE CACHE
+ * ======================================================= */
+
+import {
+  msgCache,
+  makeMessageCacheKey,
+} from "../utils/cache.js";
 
 import {
   handleDeletedMessage,
@@ -80,7 +87,8 @@ const pairingReadyPromises = new Map();
  * ======================================================= */
 
 const logger = pino({
-  level: process.env.BAILEYS_LOG_LEVEL || "silent",
+  level:
+    process.env.BAILEYS_LOG_LEVEL || "silent",
 });
 
 /* =========================================================
@@ -88,7 +96,11 @@ const logger = pino({
  * ======================================================= */
 
 export function makeSessionId(number) {
-  const clean = String(number || "").replace(/\D/g, "");
+  const clean = String(number || "").replace(
+    /\D/g,
+    ""
+  );
+
   return `wa-${clean}`;
 }
 
@@ -102,7 +114,8 @@ async function getBaileysVersion() {
   }
 
   try {
-    const result = await fetchLatestWaWebVersion();
+    const result =
+      await fetchLatestWaWebVersion();
 
     if (result?.version) {
       cachedVersion = result.version;
@@ -133,10 +146,16 @@ async function getBaileysVersion() {
  * IMPORTANT:
  * This happens BEFORE serialize/handler.
  */
-function cacheIncomingMessage(rawMessage, sessionId) {
+function cacheIncomingMessage(
+  rawMessage,
+  sessionId
+) {
   try {
-    const remoteJid = rawMessage?.key?.remoteJid;
-    const messageId = rawMessage?.key?.id;
+    const remoteJid =
+      rawMessage?.key?.remoteJid;
+
+    const messageId =
+      rawMessage?.key?.id;
 
     if (
       !remoteJid ||
@@ -153,8 +172,22 @@ function cacheIncomingMessage(rawMessage, sessionId) {
       return;
     }
 
+    /*
+     * SESSION-AWARE CACHE KEY
+     *
+     * This prevents messages from different
+     * WhatsApp sessions from mixing together.
+     */
     const cacheKey =
-      `${remoteJid}:${messageId}`;
+      makeMessageCacheKey(
+        sessionId,
+        remoteJid,
+        messageId
+      );
+
+    if (!cacheKey) {
+      return;
+    }
 
     msgCache.set(
       cacheKey,
@@ -184,16 +217,26 @@ async function createConnection(
    * EXISTING CONNECTION
    * ----------------------------------------------------- */
 
-  if (connections.has(sessionId)) {
-    return connections.get(sessionId);
+  if (
+    connections.has(sessionId)
+  ) {
+    return connections.get(
+      sessionId
+    );
   }
 
   /* -------------------------------------------------------
    * CONNECTION ALREADY STARTING
    * ----------------------------------------------------- */
 
-  if (connectingPromises.has(sessionId)) {
-    return connectingPromises.get(sessionId);
+  if (
+    connectingPromises.has(
+      sessionId
+    )
+  ) {
+    return connectingPromises.get(
+      sessionId
+    );
   }
 
   /* -------------------------------------------------------
@@ -209,9 +252,10 @@ async function createConnection(
       const {
         state,
         saveCreds,
-      } = await useMultiDbAuthState(
-        sessionId
-      );
+      } =
+        await useMultiDbAuthState(
+          sessionId
+        );
 
       console.log(
         `🔐 Auth state ready: ${sessionId}`
@@ -232,10 +276,11 @@ async function createConnection(
         auth: {
           creds: state.creds,
 
-          keys: makeCacheableSignalKeyStore(
-            state.keys,
-            logger
-          ),
+          keys:
+            makeCacheableSignalKeyStore(
+              state.keys,
+              logger
+            ),
         },
 
         logger,
@@ -254,7 +299,8 @@ async function createConnection(
       };
 
       if (version) {
-        socketOptions.version = version;
+        socketOptions.version =
+          version;
       }
 
       /* =================================================
@@ -262,7 +308,9 @@ async function createConnection(
        * =============================================== */
 
       const conn =
-        makeWASocket(socketOptions);
+        makeWASocket(
+          socketOptions
+        );
 
       connections.set(
         sessionId,
@@ -279,17 +327,25 @@ async function createConnection(
       const pairingPromise =
         new Promise(
           (resolve, reject) => {
-            resolvePairing = resolve;
-            rejectPairing = reject;
+            resolvePairing =
+              resolve;
+
+            rejectPairing =
+              reject;
           }
         );
 
       pairingReadyPromises.set(
         sessionId,
         {
-          promise: pairingPromise,
-          resolve: resolvePairing,
-          reject: rejectPairing,
+          promise:
+            pairingPromise,
+
+          resolve:
+            resolvePairing,
+
+          reject:
+            rejectPairing,
         }
       );
 
@@ -320,7 +376,8 @@ async function createConnection(
            * ------------------------------------------- */
 
           if (
-            connection === "connecting"
+            connection ===
+            "connecting"
           ) {
             console.log(
               `🔄 WhatsApp connecting: ${sessionId}`
@@ -363,7 +420,8 @@ async function createConnection(
            * ------------------------------------------- */
 
           if (
-            connection === "open"
+            connection ===
+            "open"
           ) {
             console.log(
               `✅ WhatsApp connected: ${sessionId}`
@@ -400,11 +458,14 @@ async function createConnection(
               DEFAULT_SESSION_ID
             ) {
               try {
-                setConnection(conn);
+                setConnection(
+                  conn
+                );
               } catch (error) {
                 console.log(
                   "⚠️ setConnection error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
 
@@ -415,7 +476,8 @@ async function createConnection(
               } catch (error) {
                 console.log(
                   "⚠️ Reminder scheduler error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
             }
@@ -426,7 +488,8 @@ async function createConnection(
            * ------------------------------------------- */
 
           if (
-            connection === "close"
+            connection ===
+            "close"
           ) {
             const statusCode =
               lastDisconnect
@@ -440,11 +503,11 @@ async function createConnection(
 
             console.log(
               `❌ WhatsApp disconnected: ${sessionId}` +
-              (
-                statusCode
-                  ? ` (code ${statusCode})`
-                  : ""
-              )
+                (
+                  statusCode
+                    ? ` (code ${statusCode})`
+                    : ""
+                )
             );
 
             /* -----------------------------------------
@@ -480,7 +543,8 @@ async function createConnection(
                 code:
                   pairingInfo.get(
                     sessionId
-                  )?.code || null,
+                  )?.code ||
+                  null,
               }
             );
 
@@ -528,7 +592,8 @@ async function createConnection(
               } catch (error) {
                 console.log(
                   "⚠️ Auth reset error:",
-                  error?.message || error
+                  error?.message ||
+                    error
                 );
               }
 
@@ -547,7 +612,9 @@ async function createConnection(
              * MANUAL DISCONNECT
              * --------------------------------------- */
 
-            if (wasManual) {
+            if (
+              wasManual
+            ) {
               console.log(
                 `🛑 Manual disconnect: ${sessionId}`
               );
@@ -593,7 +660,8 @@ async function createConnection(
                   (error) => {
                     console.log(
                       `❌ Reconnect failed: ${sessionId}`,
-                      error?.message || error
+                      error?.message ||
+                        error
                     );
                   }
                 );
@@ -615,7 +683,8 @@ async function createConnection(
       } catch (error) {
         console.log(
           "⚠️ Group participant event error:",
-          error?.message || error
+          error?.message ||
+            error
         );
       }
 
@@ -632,12 +701,15 @@ async function createConnection(
           console.log(
             `📩 MESSAGE EVENT [${sessionId}]:`,
             type,
-            messages?.length || 0
+            messages?.length ||
+              0
           );
 
           try {
             if (
-              !Array.isArray(messages)
+              !Array.isArray(
+                messages
+              )
             ) {
               console.log(
                 `⚠️ Messages is not an array [${sessionId}]`
@@ -650,7 +722,9 @@ async function createConnection(
               const rawMessage
               of messages
             ) {
-              if (!rawMessage) {
+              if (
+                !rawMessage
+              ) {
                 console.log(
                   `⚠️ Empty raw message [${sessionId}]`
                 );
@@ -676,7 +750,8 @@ async function createConnection(
               console.log(
                 `📩 RAW MESSAGE [${sessionId}]:`,
                 rawMessage?.key
-                  ?.remoteJid || "NO_JID",
+                  ?.remoteJid ||
+                  "NO_JID",
 
                 rawMessage?.key
                   ?.fromMe
@@ -701,7 +776,9 @@ async function createConnection(
                     rawMessage
                   );
 
-                if (!message) {
+                if (
+                  !message
+                ) {
                   console.log(
                     `⚠️ Serialize returned empty message [${sessionId}]`
                   );
@@ -725,7 +802,8 @@ async function createConnection(
                 } catch (error) {
                   console.log(
                     `⚠️ Group guard error [${sessionId}]:`,
-                    error?.message || error
+                    error?.message ||
+                      error
                   );
                 }
 
@@ -769,6 +847,8 @@ async function createConnection(
 
       /* =================================================
        * ANTI-DELETE
+       *
+       * Main revoke event.
        * ================================================= */
 
       conn.ev.on(
@@ -776,7 +856,9 @@ async function createConnection(
         async (updates) => {
           try {
             if (
-              !Array.isArray(updates)
+              !Array.isArray(
+                updates
+              )
             ) {
               return;
             }
@@ -816,6 +898,12 @@ async function createConnection(
        *
        * Some Baileys events can arrive through
        * messages.delete instead of messages.update.
+       *
+       * IMPORTANT:
+       * messages.delete does NOT reliably provide the
+       * person who deleted the message, so we do NOT
+       * incorrectly use the deleted message key as
+       * the actor key.
        * ================================================= */
 
       conn.ev.on(
@@ -823,11 +911,15 @@ async function createConnection(
         async (event) => {
           try {
             const keys =
-              Array.isArray(event?.keys)
+              Array.isArray(
+                event?.keys
+              )
                 ? event.keys
                 : [];
 
-            if (!keys.length) {
+            if (
+              !keys.length
+            ) {
               return;
             }
 
@@ -847,10 +939,18 @@ async function createConnection(
                   conn,
                   {
                     key,
+
                     update: {
+                      message: null,
+
                       messageStubType:
                         "REVOKE",
-                      key,
+
+                      /*
+                       * No actor information is
+                       * reliably available here.
+                       */
+                      key: null,
                     },
                   },
                   sessionId
@@ -919,7 +1019,9 @@ export async function connect(
   sessionId = DEFAULT_SESSION_ID
 ) {
   if (
-    connections.has(sessionId)
+    connections.has(
+      sessionId
+    )
   ) {
     return connections.get(
       sessionId
@@ -1086,7 +1188,8 @@ export async function requestPortalPairing(
   } catch (error) {
     console.log(
       `❌ Pairing failed [${sessionId}]:`,
-      error?.message || error
+      error?.message ||
+        error
     );
 
     throw error;
