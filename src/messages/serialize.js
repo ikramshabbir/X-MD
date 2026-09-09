@@ -1,14 +1,29 @@
+import { normalizeMessageContent } from "baileys";
+
 const MIME_TYPE_MAP = {
     conversation: "text",
+    extendedTextMessage: "text",
     imageMessage: "image",
     videoMessage: "video",
     stickerMessage: "sticker",
     documentMessage: "document",
     audioMessage: "audio",
     documentWithCaptionMessage: "document",
+    viewOnceMessage: "image",
     viewOnceMessageV2: "image",
     viewOnceMessageV2Extension: "image",
-    extendedTextMessage: "text",
+    templateMessage: "text",
+    buttonsResponseMessage: "text",
+    listResponseMessage: "text",
+    templateButtonReplyMessage: "text",
+    interactiveResponseMessage: "text",
+    locationMessage: "location",
+    liveLocationMessage: "location",
+    contactMessage: "contact",
+    contactsArrayMessage: "contact",
+    reactionMessage: "reaction",
+    pollCreationMessage: "poll",
+    pollUpdateMessage: "poll",
 };
 
 const WRAPPER_KEYS = [
@@ -20,74 +35,154 @@ const WRAPPER_KEYS = [
     "templateMessage",
 ];
 
-/**
- * Gets the message type and MIME type from a message object.
- * @param {object} message - The message object to analyze.
- * @returns {{key: string, mime: string}} The message type key and MIME type.
- */
 function getMessageMimeType(message) {
-    if (!message) return { key: "unknown", mime: "unknown" };
+    if (!message || typeof message !== "object") {
+        return {
+            key: "unknown",
+            mime: "unknown",
+        };
+    }
 
-    for (const key in message) {
+    for (const key of Object.keys(message)) {
         if (MIME_TYPE_MAP[key]) {
-            return { key, mime: MIME_TYPE_MAP[key] };
+            return {
+                key,
+                mime: MIME_TYPE_MAP[key],
+            };
         }
     }
 
-    return { key: "unknown", mime: "unknown" };
+    return {
+        key: "unknown",
+        mime: "unknown",
+    };
 }
 
 /**
- * Unwrap nested WA message wrappers to the inner content object
+ * Unwrap Baileys message wrappers.
+ * First uses Baileys' own normalizer, then handles remaining wrappers.
  */
 function unwrapMessage(msg) {
+    if (!msg) return null;
+
     let current = msg;
-    for (let i = 0; i < 4 && current; i++) {
+
+    try {
+        const normalized = normalizeMessageContent(current);
+
+        if (normalized) {
+            current = normalized;
+        }
+    } catch (error) {
+        console.log(
+            "⚠️ normalizeMessageContent error:",
+            error?.message || error
+        );
+    }
+
+    for (let i = 0; i < 6 && current; i++) {
         let unwrapped = false;
+
         for (const key of WRAPPER_KEYS) {
-            if (current[key]?.message) {
+            if (current?.[key]?.message) {
                 current = current[key].message;
                 unwrapped = true;
                 break;
             }
         }
+
         if (!unwrapped) break;
     }
+
     return current;
 }
 
-/**
- * Extracts quoted message content from context info.
- * Returns a rich object with type + raw for media downloads.
- */
+function extractTextFromContent(content, messageTypeKey) {
+    if (messageTypeKey === "conversation") {
+        return typeof content === "string" ? content : "";
+    }
+
+    if (!content || typeof content !== "object") {
+        return "";
+    }
+
+    return (
+        content.text ||
+        content.caption ||
+        content.selectedDisplayText ||
+        content.title ||
+        content.description ||
+        ""
+    );
+}
+
 function extractQuotedMessage(contextInfo) {
-    if (!contextInfo?.quotedMessage) return null;
+    if (!contextInfo?.quotedMessage) {
+        return null;
+    }
 
     const unwrapped = unwrapMessage(contextInfo.quotedMessage);
-    const { key: quotedKey, mime } = getMessageMimeType(unwrapped);
-    if (mime === "unknown" || !quotedKey) return null;
+
+    if (!unwrapped) {
+        return null;
+    }
+
+    const {
+        key: quotedKey,
+        mime,
+    } = getMessageMimeType(unwrapped);
+
+    if (mime === "unknown") {
+        return null;
+    }
 
     let content = unwrapped[quotedKey];
 
-    // Nested wrappers (e.g. documentWithCaptionMessage)
     if (content?.message) {
         const nested = unwrapMessage(content.message);
-        const { key: nestKey, mime: nestMime } = getMessageMimeType(nested);
-        if (nestMime !== "unknown" && nestKey) {
-            content = nested[nestKey];
-            return normalizeQuoted(content, nestMime, nestKey, nested);
+
+        if (nested) {
+            const {
+                key: nestedKey,
+                mime: nestedMime,
+            } = getMessageMimeType(nested);
+
+            if (nestedMime !== "unknown") {
+                content = nested[nestedKey];
+
+                return normalizeQuoted(
+                    content,
+                    nestedMime,
+                    nestedKey,
+                    nested
+                );
+            }
         }
     }
 
-    return normalizeQuoted(content, mime, quotedKey, unwrapped);
+    return normalizeQuoted(
+        content,
+        mime,
+        quotedKey,
+        unwrapped
+    );
 }
 
-function normalizeQuoted(content, mime, messageTypeKey, raw) {
+function normalizeQuoted(
+    content,
+    mime,
+    messageTypeKey,
+    raw
+) {
     if (mime === "text") {
         const text =
             typeof content === "string"
                 ? content
-                : content?.text || content?.caption || "";
+                : extractTextFromContent(
+                      content,
+                      messageTypeKey
+                  );
+
         return {
             type: "text",
             text,
@@ -99,9 +194,19 @@ function normalizeQuoted(content, mime, messageTypeKey, raw) {
     }
 
     return {
-        ...(typeof content === "object" && content ? content : {}),
+        ...(typeof content === "object" && content
+            ? content
+            : {}),
+
         type: mime,
-        text: content?.caption || content?.text || "",
+
+        text:
+            typeof content === "object"
+                ? content?.caption ||
+                  content?.text ||
+                  ""
+                : "",
+
         caption: content?.caption,
         mimetype: content?.mimetype,
         messageTypeKey,
@@ -110,73 +215,45 @@ function normalizeQuoted(content, mime, messageTypeKey, raw) {
 }
 
 /**
- * Determines sender information with LID/PN support.
+ * Determines sender information with LID / PN support.
  */
 function getSenderInfo(key, isGroup, conn) {
-    const isBotMessage = key.fromMe && !key.participant;
+    const isBotMessage =
+        key.fromMe === true &&
+        !key.participant;
 
     if (isGroup) {
-        const participant = key.participant || null;
-        const participantAlt = key.participantAlt || null;
+        const participant =
+            key.participant || null;
+
+        const participantAlt =
+            key.participantAlt || null;
 
         const sender = isBotMessage
-            ? conn.user?.id
-            : (participantAlt || participant);
+            ? conn?.user?.id || null
+            : participantAlt ||
+              participant ||
+              null;
 
-        return { participant, participantAlt, sender, isBotMessage };
-    } else {
-        const participant = key.remoteJid;
-        const participantAlt = key.remoteJidAlt || null;
-
-        const sender = key.fromMe
-            ? conn.user?.id
-            : (participantAlt || participant);
-
-        return { participant, participantAlt, sender, isBotMessage };
+        return {
+            participant,
+            participantAlt,
+            sender,
+            isBotMessage,
+        };
     }
-}
 
-/**
- * Serializes a Baileys message object to make it easier to work with.
- * Updated for Baileys 7.x.x with LID support.
- */
-async function serialize(message, conn) {
-    if (!message?.key?.remoteJid || !message?.message) return null;
+    const participant =
+        key.remoteJid || null;
 
-    const { key, message: msgContent, pushName } = message;
+    const participantAlt =
+        key.remoteJidAlt || null;
 
-    const unwrapped = unwrapMessage(msgContent);
-    const { key: messageTypeKey, mime: messageMime } = getMessageMimeType(unwrapped);
-    if (messageMime === "unknown") return null;
-
-    const messageContent = unwrapped[messageTypeKey];
-    const isGroup = key.remoteJid.endsWith("@g.us");
-
-    const from = key.remoteJid;
-    const fromAlt = key.remoteJidAlt || null;
-
-    const { participant, participantAlt, sender, isBotMessage } = getSenderInfo(key, isGroup, conn);
-
-    const contextInfo = messageContent?.contextInfo;
-    const quoted = extractQuotedMessage(contextInfo);
-
-    const body = messageTypeKey === "conversation"
-        ? messageContent
-        : (messageContent?.text || messageContent?.caption || "");
+    const sender = key.fromMe
+        ? conn?.user?.id || participant
+        : participantAlt || participant;
 
     return {
-        key,
-        id: key.id,
-        pushName: pushName || "",
-        isGroup,
-        from,
-        fromAlt,
-        type: messageMime,
-        message: messageContent,
-        messageTypeKey,
-        rawMessage: unwrapped,
-        body,
-        quoted,
         participant,
         participantAlt,
         sender,
@@ -184,5 +261,142 @@ async function serialize(message, conn) {
     };
 }
 
-export { serialize };
+/**
+ * Serialize Baileys 7.x message.
+ */
+async function serialize(message, conn) {
+    if (!message?.key?.remoteJid) {
+        console.log(
+            "⚠️ Serialize: missing remoteJid"
+        );
 
+        return null;
+    }
+
+    if (!message?.message) {
+        console.log(
+            "⚠️ Serialize: missing message content"
+        );
+
+        return null;
+    }
+
+    const {
+        key,
+        pushName,
+    } = message;
+
+    const unwrapped =
+        unwrapMessage(message.message);
+
+    if (!unwrapped) {
+        console.log(
+            "⚠️ Serialize: unable to unwrap message"
+        );
+
+        return null;
+    }
+
+    const {
+        key: messageTypeKey,
+        mime: messageMime,
+    } = getMessageMimeType(unwrapped);
+
+    if (messageMime === "unknown") {
+        console.log(
+            "⚠️ Serialize: unknown message type:",
+            Object.keys(unwrapped)
+        );
+
+        return null;
+    }
+
+    const messageContent =
+        unwrapped[messageTypeKey];
+
+    const isGroup =
+        key.remoteJid.endsWith("@g.us");
+
+    const from =
+        key.remoteJid;
+
+    const fromAlt =
+        key.remoteJidAlt || null;
+
+    const {
+        participant,
+        participantAlt,
+        sender,
+        isBotMessage,
+    } = getSenderInfo(
+        key,
+        isGroup,
+        conn
+    );
+
+    const contextInfo =
+        messageContent?.contextInfo ||
+        messageContent?.contextInfoV2 ||
+        null;
+
+    const quoted =
+        extractQuotedMessage(
+            contextInfo
+        );
+
+    const body =
+        extractTextFromContent(
+            messageContent,
+            messageTypeKey
+        );
+
+    return {
+        key,
+
+        id:
+            key.id || "",
+
+        pushName:
+            pushName || "",
+
+        isGroup,
+
+        from,
+
+        fromAlt,
+
+        type:
+            messageMime,
+
+        message:
+            messageContent,
+
+        messageTypeKey,
+
+        rawMessage:
+            unwrapped,
+
+        body,
+
+        quoted,
+
+        participant,
+
+        participantAlt,
+
+        sender,
+
+        isBotMessage,
+
+        /**
+         * Original Baileys message.
+         * Useful for media downloading and advanced handlers.
+         */
+        originalMessage:
+            message,
+    };
+}
+
+export {
+    serialize,
+};
