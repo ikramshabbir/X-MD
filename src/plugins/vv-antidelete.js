@@ -1,8 +1,9 @@
 /**
  * X-MD / X-ANSARI
- * View Once + Anti Delete
+ * View Once + AntiDelete
  *
  * Commands:
+ *
  * .vv
  * .antidelete on
  * .antidelete off
@@ -17,12 +18,16 @@ import {
 } from "baileys";
 
 import { command } from "../plugins.js";
+
 import {
   reply,
   replyFail,
+  getCommandArgs,
 } from "../utils/message.js";
 
-import { msgCache } from "../utils/cache.js";
+import {
+  msgCache,
+} from "../utils/cache.js";
 
 
 /* =========================================================
@@ -44,19 +49,35 @@ const SETTINGS_FILE =
 let settings = {};
 
 
-/* ---------------------------------------------------------
+/* =========================================================
  * LOAD SETTINGS
- * ------------------------------------------------------- */
+ * ======================================================= */
 
 function loadSettings() {
+
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, {
-        recursive: true,
-      });
+
+    if (
+      !fs.existsSync(
+        DATA_DIR
+      )
+    ) {
+
+      fs.mkdirSync(
+        DATA_DIR,
+        {
+          recursive: true,
+        }
+      );
     }
 
-    if (!fs.existsSync(SETTINGS_FILE)) {
+
+    if (
+      !fs.existsSync(
+        SETTINGS_FILE
+      )
+    ) {
+
       fs.writeFileSync(
         SETTINGS_FILE,
         "{}",
@@ -64,22 +85,26 @@ function loadSettings() {
       );
     }
 
+
     const data =
       fs.readFileSync(
         SETTINGS_FILE,
         "utf8"
       );
 
+
     settings =
       data
         ? JSON.parse(data)
         : {};
 
+
   } catch (error) {
 
     console.log(
       "⚠️ AntiDelete settings load error:",
-      error?.message || error
+      error?.message ||
+        error
     );
 
     settings = {};
@@ -87,18 +112,28 @@ function loadSettings() {
 }
 
 
-/* ---------------------------------------------------------
+/* =========================================================
  * SAVE SETTINGS
- * ------------------------------------------------------- */
+ * ======================================================= */
 
 function saveSettings() {
+
   try {
 
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, {
-        recursive: true,
-      });
+    if (
+      !fs.existsSync(
+        DATA_DIR
+      )
+    ) {
+
+      fs.mkdirSync(
+        DATA_DIR,
+        {
+          recursive: true,
+        }
+      );
     }
+
 
     fs.writeFileSync(
       SETTINGS_FILE,
@@ -110,11 +145,13 @@ function saveSettings() {
       "utf8"
     );
 
+
   } catch (error) {
 
     console.log(
       "⚠️ AntiDelete settings save error:",
-      error?.message || error
+      error?.message ||
+        error
     );
   }
 }
@@ -130,9 +167,14 @@ loadSettings();
 export function isAntiDeleteEnabled(
   jid
 ) {
-  if (!jid) return false;
 
-  return settings[jid] === true;
+  if (!jid) {
+    return false;
+  }
+
+  return (
+    settings[jid] === true
+  );
 }
 
 
@@ -155,7 +197,7 @@ export function setAntiDelete(
 
 
 /* =========================================================
- * HELPERS
+ * CACHE KEY
  * ======================================================= */
 
 function getCacheKey(
@@ -167,6 +209,10 @@ function getCacheKey(
 }
 
 
+/* =========================================================
+ * JID -> NUMBER
+ * ======================================================= */
+
 function jidToNumber(
   jid
 ) {
@@ -175,7 +221,8 @@ function jidToNumber(
     return "Unknown";
   }
 
-  return jid
+
+  return String(jid)
     .split(":")[0]
     .replace(
       "@s.whatsapp.net",
@@ -188,13 +235,19 @@ function jidToNumber(
 }
 
 
+/* =========================================================
+ * GET DELETER
+ * ======================================================= */
+
 function getMentionJid(
   protocolKey,
   remoteJid
 ) {
 
   if (
-    remoteJid?.endsWith("@g.us")
+    remoteJid?.endsWith(
+      "@g.us"
+    )
   ) {
 
     return (
@@ -203,25 +256,27 @@ function getMentionJid(
       protocolKey?.remoteJid ||
       "unknown@s.whatsapp.net"
     );
-
   }
+
 
   return (
     protocolKey?.participant ||
+    protocolKey?.participantAlt ||
     protocolKey?.remoteJid ||
     remoteJid
   );
 }
 
 
+/* =========================================================
+ * MENTION TEXT
+ * ======================================================= */
+
 function mentionText(
   jid
 ) {
 
-  const number =
-    jidToNumber(jid);
-
-  return `@${number}`;
+  return `@${jidToNumber(jid)}`;
 }
 
 
@@ -236,7 +291,8 @@ async function streamToBuffer(
   const chunks = [];
 
   for await (
-    const chunk of stream
+    const chunk
+    of stream
   ) {
 
     chunks.push(
@@ -261,14 +317,18 @@ function unwrapForSend(
   let current =
     content;
 
+
   for (
     let i = 0;
-    i < 10 && current;
+    i < 10 &&
+    current;
     i++
   ) {
 
+
     if (
-      current.ephemeralMessage
+      current
+        .ephemeralMessage
         ?.message
     ) {
 
@@ -280,8 +340,10 @@ function unwrapForSend(
       continue;
     }
 
+
     if (
-      current.viewOnceMessage
+      current
+        .viewOnceMessage
         ?.message
     ) {
 
@@ -293,8 +355,10 @@ function unwrapForSend(
       continue;
     }
 
+
     if (
-      current.viewOnceMessageV2
+      current
+        .viewOnceMessageV2
         ?.message
     ) {
 
@@ -305,6 +369,7 @@ function unwrapForSend(
 
       continue;
     }
+
 
     if (
       current
@@ -320,8 +385,10 @@ function unwrapForSend(
       continue;
     }
 
+
     if (
-      current.documentWithCaptionMessage
+      current
+        .documentWithCaptionMessage
         ?.message
     ) {
 
@@ -333,8 +400,10 @@ function unwrapForSend(
       continue;
     }
 
+
     break;
   }
+
 
   return current;
 }
@@ -350,16 +419,19 @@ async function downloadMedia(
 ) {
 
   if (!content) {
+
     throw new Error(
       "Media content missing"
     );
   }
+
 
   const stream =
     await downloadContentFromMessage(
       content,
       type
     );
+
 
   return streamToBuffer(
     stream
@@ -378,36 +450,43 @@ export async function resendRawMessage(
 ) {
 
   if (!conn) {
+
     throw new Error(
       "Connection missing"
     );
   }
 
+
   if (!jid) {
+
     throw new Error(
       "Chat JID missing"
     );
   }
 
+
   let content =
     rawMessage?.message ||
     rawMessage;
+
 
   content =
     unwrapForSend(
       content
     );
 
+
   if (!content) {
+
     throw new Error(
       "Original message missing"
     );
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * TEXT
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.conversation
@@ -440,9 +519,9 @@ export async function resendRawMessage(
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * IMAGE
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.imageMessage
@@ -453,6 +532,7 @@ export async function resendRawMessage(
         content.imageMessage,
         "image"
       );
+
 
     return conn.sendMessage(
       jid,
@@ -476,9 +556,9 @@ export async function resendRawMessage(
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * VIDEO
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.videoMessage
@@ -489,6 +569,7 @@ export async function resendRawMessage(
         content.videoMessage,
         "video"
       );
+
 
     return conn.sendMessage(
       jid,
@@ -512,9 +593,9 @@ export async function resendRawMessage(
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * AUDIO
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.audioMessage
@@ -525,6 +606,7 @@ export async function resendRawMessage(
         content.audioMessage,
         "audio"
       );
+
 
     return conn.sendMessage(
       jid,
@@ -549,9 +631,9 @@ export async function resendRawMessage(
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * DOCUMENT
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.documentMessage
@@ -562,6 +644,7 @@ export async function resendRawMessage(
         content.documentMessage,
         "document"
       );
+
 
     return conn.sendMessage(
       jid,
@@ -591,9 +674,9 @@ export async function resendRawMessage(
   }
 
 
-  /* -------------------------------------------------------
+  /* =======================================================
    * STICKER
-   * ----------------------------------------------------- */
+   * ===================================================== */
 
   if (
     content.stickerMessage
@@ -604,6 +687,7 @@ export async function resendRawMessage(
         content.stickerMessage,
         "sticker"
       );
+
 
     return conn.sendMessage(
       jid,
@@ -649,38 +733,44 @@ command(
 
     try {
 
-      if (!message.quoted) {
-
-        return replyFail(
-          conn,
-          message,
-          "❌ View Once message ko reply karke .vv bhejo."
-        );
-      }
-
-
       if (
-        !message.quoted.isViewOnce
+        !message.quoted
       ) {
 
         return replyFail(
           conn,
           message,
-          "❌ Ye View Once message nahi hai."
+          "View Once message ko reply karke .vv bhejo."
+        );
+      }
+
+
+      if (
+        !message
+          .quoted
+          .isViewOnce
+      ) {
+
+        return replyFail(
+          conn,
+          message,
+          "Ye View Once message nahi hai."
         );
       }
 
 
       const original =
-        message.quoted
+        message
+          .quoted
           .originalMessage;
+
 
       if (!original) {
 
         return replyFail(
           conn,
           message,
-          "❌ View Once message data nahi mila."
+          "View Once message data nahi mila."
         );
       }
 
@@ -691,6 +781,7 @@ command(
         original
       );
 
+
     } catch (error) {
 
       console.log(
@@ -700,10 +791,11 @@ command(
           error
       );
 
+
       return replyFail(
         conn,
         message,
-        "❌ View Once recover nahi ho saka."
+        "View Once recover nahi ho saka."
       );
     }
   }
@@ -711,7 +803,7 @@ command(
 
 
 /* =========================================================
- * .ANTIDELETE ON / OFF / STATUS
+ * .ANTIDELETE
  * ======================================================= */
 
 command(
@@ -731,26 +823,40 @@ command(
 
   async (
     message,
-    conn,
-    match
+    conn
   ) => {
 
     try {
 
+      /*
+       * IMPORTANT:
+       * Command arguments are extracted
+       * from message.body.
+       *
+       * Examples:
+       * .antidelete on
+       * .antidelete off
+       * .antidelete status
+       */
+
       const args =
         String(
-          match || ""
+          getCommandArgs(
+            message.body || "",
+            "antidelete"
+          ) || ""
         )
           .trim()
           .toLowerCase();
+
 
       const jid =
         message.from;
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
        * STATUS
-       * ------------------------------------------------- */
+       * ================================================= */
 
       if (
         !args ||
@@ -762,6 +868,7 @@ command(
             jid
           );
 
+
         return reply(
           conn,
           message,
@@ -772,9 +879,9 @@ command(
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
        * ON
-       * ------------------------------------------------- */
+       * ================================================= */
 
       if (
         args === "on"
@@ -785,6 +892,7 @@ command(
           true
         );
 
+
         return reply(
           conn,
           message,
@@ -793,9 +901,9 @@ command(
       }
 
 
-      /* ---------------------------------------------------
+      /* ===================================================
        * OFF
-       * ------------------------------------------------- */
+       * ================================================= */
 
       if (
         args === "off"
@@ -806,6 +914,7 @@ command(
           false
         );
 
+
         return reply(
           conn,
           message,
@@ -814,24 +923,31 @@ command(
       }
 
 
+      /* ===================================================
+       * INVALID ARGUMENT
+       * ================================================= */
+
       return reply(
         conn,
         message,
         "Use:\n.antidelete on\n.antidelete off\n.antidelete status"
       );
 
+
     } catch (error) {
 
       console.log(
         "❌ AntiDelete command error:",
-        error?.message ||
+        error?.stack ||
+          error?.message ||
           error
       );
+
 
       return replyFail(
         conn,
         message,
-        "❌ AntiDelete setting failed."
+        "AntiDelete setting failed."
       );
     }
   }
@@ -856,19 +972,24 @@ export async function handleDeletedMessage(
         ?.message
         ?.protocolMessage;
 
+
     if (!protocol) {
+
       return false;
     }
 
 
-    /* -----------------------------------------------------
-     * ONLY REVOKE / DELETE
-     * --------------------------------------------------- */
+    /* =====================================================
+     * CHECK DELETE TYPE
+     * =================================================== */
 
     const type =
       String(
-        protocol.type || ""
-      ).toUpperCase();
+        protocol.type ||
+        ""
+      )
+        .toUpperCase();
+
 
     if (
       type !== "REVOKE" &&
@@ -879,10 +1000,16 @@ export async function handleDeletedMessage(
     }
 
 
+    /* =====================================================
+     * DELETED MESSAGE KEY
+     * =================================================== */
+
     const deletedKey =
       protocol.key;
 
+
     if (!deletedKey) {
+
       return false;
     }
 
@@ -893,6 +1020,7 @@ export async function handleDeletedMessage(
     const messageId =
       deletedKey.id;
 
+
     if (
       !remoteJid ||
       !messageId
@@ -902,9 +1030,9 @@ export async function handleDeletedMessage(
     }
 
 
-    /* -----------------------------------------------------
-     * CHECK ON/OFF
-     * --------------------------------------------------- */
+    /* =====================================================
+     * CHECK ANTI DELETE STATUS
+     * =================================================== */
 
     if (
       !isAntiDeleteEnabled(
@@ -916,15 +1044,16 @@ export async function handleDeletedMessage(
     }
 
 
-    /* -----------------------------------------------------
-     * FIND ORIGINAL MESSAGE
-     * --------------------------------------------------- */
+    /* =====================================================
+     * FIND CACHED MESSAGE
+     * ===================================================== */
 
     const cacheKey =
       getCacheKey(
         remoteJid,
         messageId
       );
+
 
     const original =
       msgCache.get(
@@ -943,20 +1072,14 @@ export async function handleDeletedMessage(
     }
 
 
-    /* -----------------------------------------------------
-     * WHO DELETED?
-     * --------------------------------------------------- */
+    /* =====================================================
+     * FIND WHO DELETED
+     * ===================================================== */
 
     const deleter =
       getMentionJid(
         deletedKey,
         remoteJid
-      );
-
-
-    const mention =
-      mentionText(
-        deleter
       );
 
 
@@ -966,37 +1089,38 @@ export async function handleDeletedMessage(
       );
 
 
-    /* -----------------------------------------------------
-     * HEADER
-     * --------------------------------------------------- */
-
-    const header =
-      isGroup
-        ? `🗑️ *AntiDelete*\n👤 User: ${mention}\n❌ Deleted a message`
-        : `🗑️ *AntiDelete*\n❌ Message deleted`;
-
-
-    /* -----------------------------------------------------
+    /* =====================================================
      * SEND HEADER
-     * --------------------------------------------------- */
+     * ===================================================== */
 
-    await conn.sendMessage(
-      remoteJid,
-      {
-        text:
-          header,
+    if (isGroup) {
 
-        mentions:
-          isGroup
-            ? [deleter]
-            : [],
-      }
-    );
+      await conn.sendMessage(
+        remoteJid,
+        {
+          text:
+            `🗑️ *AntiDelete*\n👤 User: ${mentionText(deleter)}\n❌ Deleted a message`,
+
+          mentions:
+            [deleter],
+        }
+      );
+
+    } else {
+
+      await conn.sendMessage(
+        remoteJid,
+        {
+          text:
+            "🗑️ *AntiDelete*\n❌ Message deleted",
+        }
+      );
+    }
 
 
-    /* -----------------------------------------------------
-     * SEND ORIGINAL
-     * --------------------------------------------------- */
+    /* =====================================================
+     * RESEND ORIGINAL
+     * ===================================================== */
 
     try {
 
@@ -1006,13 +1130,16 @@ export async function handleDeletedMessage(
         original
       );
 
+
     } catch (mediaError) {
 
       console.log(
         `⚠️ AntiDelete resend error [${sessionId}]:`,
-        mediaError?.message ||
+        mediaError?.stack ||
+          mediaError?.message ||
           mediaError
       );
+
 
       await conn.sendMessage(
         remoteJid,
@@ -1032,7 +1159,9 @@ export async function handleDeletedMessage(
       cacheKey
     );
 
+
     return true;
+
 
   } catch (error) {
 
