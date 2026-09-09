@@ -39,29 +39,45 @@ command(
   },
   async (message, conn) => {
     const args = (getCommandArgs(message.body, "welcome") || "").trim();
+
     if (!args) {
       const s = await toggleGroupFlag(message.from, "welcome");
+
       await replyOk(
         conn,
         message,
-        s.welcome ? await t("WELCOME_ON") : await t("WELCOME_OFF")
+        s.welcome
+          ? await t("WELCOME_ON")
+          : await t("WELCOME_OFF")
       );
       return;
     }
+
     if (args === "on" || args === "off") {
-      await setGroupSettings(message.from, { welcome: args === "on" });
+      await setGroupSettings(message.from, {
+        welcome: args === "on",
+      });
+
       await replyOk(
         conn,
         message,
-        args === "on" ? await t("WELCOME_ON") : await t("WELCOME_OFF")
+        args === "on"
+          ? await t("WELCOME_ON")
+          : await t("WELCOME_OFF")
       );
       return;
     }
+
     await setGroupSettings(message.from, {
       welcome: true,
       welcomeText: args,
     });
-    await replyOk(conn, message, "Welcome text updated & enabled.");
+
+    await replyOk(
+      conn,
+      message,
+      "Welcome text updated & enabled."
+    );
   }
 );
 
@@ -76,29 +92,45 @@ command(
   },
   async (message, conn) => {
     const args = (getCommandArgs(message.body, "goodbye") || "").trim();
+
     if (!args) {
       const s = await toggleGroupFlag(message.from, "goodbye");
+
       await replyOk(
         conn,
         message,
-        s.goodbye ? await t("GOODBYE_ON") : await t("GOODBYE_OFF")
+        s.goodbye
+          ? await t("GOODBYE_ON")
+          : await t("GOODBYE_OFF")
       );
       return;
     }
+
     if (args === "on" || args === "off") {
-      await setGroupSettings(message.from, { goodbye: args === "on" });
+      await setGroupSettings(message.from, {
+        goodbye: args === "on",
+      });
+
       await replyOk(
         conn,
         message,
-        args === "on" ? await t("GOODBYE_ON") : await t("GOODBYE_OFF")
+        args === "on"
+          ? await t("GOODBYE_ON")
+          : await t("GOODBYE_OFF")
       );
       return;
     }
+
     await setGroupSettings(message.from, {
       goodbye: true,
       goodbyeText: args,
     });
-    await replyOk(conn, message, "Goodbye text updated & enabled.");
+
+    await replyOk(
+      conn,
+      message,
+      "Goodbye text updated & enabled."
+    );
   }
 );
 
@@ -113,14 +145,30 @@ command(
     botAdminRequired: true,
   },
   async (message, conn) => {
-    const args = (getCommandArgs(message.body, "antilink") || "").trim().toLowerCase();
+    const args = (
+      getCommandArgs(message.body, "antilink") || ""
+    )
+      .trim()
+      .toLowerCase();
+
     let s;
+
     if (args === "on" || args === "off") {
-      s = await setGroupSettings(message.from, { antilink: args === "on" });
+      s = await setGroupSettings(message.from, {
+        antilink: args === "on",
+      });
     } else {
-      s = await toggleGroupFlag(message.from, "antilink");
+      s = await toggleGroupFlag(
+        message.from,
+        "antilink"
+      );
     }
-    await replyOk(conn, message, `Anti-link: *${onOff(s.antilink)}*`);
+
+    await replyOk(
+      conn,
+      message,
+      `Anti-link: *${onOff(s.antilink)}*`
+    );
   }
 );
 
@@ -134,13 +182,25 @@ command(
     adminOnly: true,
   },
   async (message, conn) => {
-    const args = (getCommandArgs(message.body, "antispam") || "").trim().toLowerCase();
+    const args = (
+      getCommandArgs(message.body, "antispam") || ""
+    )
+      .trim()
+      .toLowerCase();
+
     let s;
+
     if (args === "on" || args === "off") {
-      s = await setGroupSettings(message.from, { antispam: args === "on" });
+      s = await setGroupSettings(message.from, {
+        antispam: args === "on",
+      });
     } else {
-      s = await toggleGroupFlag(message.from, "antispam");
+      s = await toggleGroupFlag(
+        message.from,
+        "antispam"
+      );
     }
+
     await replyOk(
       conn,
       message,
@@ -160,6 +220,7 @@ command(
   },
   async (message, conn) => {
     const s = await getGroupSettings(message.from);
+
     await reply(
       conn,
       message,
@@ -186,47 +247,90 @@ command(
     botAdminRequired: true,
   },
   async (message, conn) => {
-    await withTyping(conn, message.from, async () => {
-      const target = resolveTargetUser(message);
-      if (!target) {
-        await replyFail(
-          conn,
-          message,
-          `Reply/mention a user.\nUsage: ${BOT_INFO.PREFIX}warn @user`
-        );
-        return;
-      }
-      const settings = await getGroupSettings(message.from);
-      const norm = normalizeNumber(target) || target;
-      const count = await addWarn(message.from, norm);
-      const limit = settings.warnLimit || 3;
+    await withTyping(
+      conn,
+      message.from,
+      async () => {
+        const target = resolveTargetUser(message);
 
-      const text = (await t("WARNED", { count, limit })).replace(
-        "@user",
-        `@${displayId(target)}`
-      );
-      await conn.sendMessage(message.from, {
-        text,
-        mentions: [target],
-      });
-
-      if (count >= limit) {
-        try {
-          await conn.groupParticipantsUpdate(message.from, [target], "remove");
-          await resetWarns(message.from, norm);
-          const kicked = (await t("KICKED_WARNS")).replace(
-            "@user",
-            `@${displayId(target)}`
+        if (!target) {
+          await replyFail(
+            conn,
+            message,
+            `Reply/mention a user.\nUsage: ${BOT_INFO.PREFIX}warn @user`
           );
-          await conn.sendMessage(message.from, {
-            text: kicked,
+          return;
+        }
+
+        const settings = await getGroupSettings(
+          message.from
+        );
+
+        const norm =
+          normalizeNumber(target) || target;
+
+        const count = await addWarn(
+          message.from,
+          norm
+        );
+
+        const limit = settings.warnLimit || 3;
+
+        const text = (
+          await t("WARNED", {
+            count,
+            limit,
+          })
+        ).replace(
+          "@user",
+          `@${displayId(target)}`
+        );
+
+        await conn.sendMessage(
+          message.from,
+          {
+            text,
             mentions: [target],
-          });
-        } catch {
-          await replyFail(conn, message, "Could not remove user (need admin).");
+          }
+        );
+
+        if (count >= limit) {
+          try {
+            await conn.groupParticipantsUpdate(
+              message.from,
+              [target],
+              "remove"
+            );
+
+            await resetWarns(
+              message.from,
+              norm
+            );
+
+            const kicked = (
+              await t("KICKED_WARNS")
+            ).replace(
+              "@user",
+              `@${displayId(target)}`
+            );
+
+            await conn.sendMessage(
+              message.from,
+              {
+                text: kicked,
+                mentions: [target],
+              }
+            );
+          } catch {
+            await replyFail(
+              conn,
+              message,
+              "Could not remove user (need admin)."
+            );
+          }
         }
       }
-    });
+    );
   }
 );
 
@@ -241,13 +345,29 @@ command(
   },
   async (message, conn) => {
     const target = resolveTargetUser(message);
+
     if (!target) {
-      await replyFail(conn, message, "Reply/mention a user.");
+      await replyFail(
+        conn,
+        message,
+        "Reply/mention a user."
+      );
       return;
     }
-    const norm = normalizeNumber(target) || target;
-    await resetWarns(message.from, norm);
-    await replyOk(conn, message, `Warns reset for @${displayId(target)}`);
+
+    const norm =
+      normalizeNumber(target) || target;
+
+    await resetWarns(
+      message.from,
+      norm
+    );
+
+    await replyOk(
+      conn,
+      message,
+      `Warns reset for @${displayId(target)}`
+    );
   }
 );
 
@@ -255,15 +375,29 @@ command(
   {
     pattern: "warns",
     fromMe: false,
-    desc: "Show warn count",
+
+    // 👇 ONLY CHANGE
+    desc: "Mention group on status",
+
     type: "admin",
     groupOnly: true,
   },
   async (message, conn) => {
-    const target = resolveTargetUser(message) || message.sender;
-    const norm = normalizeNumber(target) || target;
-    const count = await getWarns(message.from, norm);
-    const settings = await getGroupSettings(message.from);
+    const target =
+      resolveTargetUser(message) ||
+      message.sender;
+
+    const norm =
+      normalizeNumber(target) || target;
+
+    const count = await getWarns(
+      message.from,
+      norm
+    );
+
+    const settings =
+      await getGroupSettings(message.from);
+
     await reply(
       conn,
       message,
@@ -282,16 +416,40 @@ command(
     adminOnly: true,
   },
   async (message, conn) => {
-    const target = resolveTargetUser(message);
+    const target =
+      resolveTargetUser(message);
+
     if (!target) {
-      await replyFail(conn, message, "Reply/mention a user.");
+      await replyFail(
+        conn,
+        message,
+        "Reply/mention a user."
+      );
       return;
     }
-    const s = await getGroupSettings(message.from);
-    const n = normalizeNumber(target) || target;
-    if (!s.muted.includes(n)) s.muted.push(n);
-    await setGroupSettings(message.from, { muted: s.muted });
-    await replyOk(conn, message, `Muted @${displayId(target)}`);
+
+    const s =
+      await getGroupSettings(message.from);
+
+    const n =
+      normalizeNumber(target) || target;
+
+    if (!s.muted.includes(n)) {
+      s.muted.push(n);
+    }
+
+    await setGroupSettings(
+      message.from,
+      {
+        muted: s.muted,
+      }
+    );
+
+    await replyOk(
+      conn,
+      message,
+      `Muted @${displayId(target)}`
+    );
   }
 );
 
@@ -305,17 +463,38 @@ command(
     adminOnly: true,
   },
   async (message, conn) => {
-    const target = resolveTargetUser(message);
+    const target =
+      resolveTargetUser(message);
+
     if (!target) {
-      await replyFail(conn, message, "Reply/mention a user.");
+      await replyFail(
+        conn,
+        message,
+        "Reply/mention a user."
+      );
       return;
     }
-    const s = await getGroupSettings(message.from);
-    const n = normalizeNumber(target) || target;
-    await setGroupSettings(message.from, {
-      muted: (s.muted || []).filter((x) => x !== n),
-    });
-    await replyOk(conn, message, `Unmuted @${displayId(target)}`);
+
+    const s =
+      await getGroupSettings(message.from);
+
+    const n =
+      normalizeNumber(target) || target;
+
+    await setGroupSettings(
+      message.from,
+      {
+        muted: (s.muted || []).filter(
+          (x) => x !== n
+        ),
+      }
+    );
+
+    await replyOk(
+      conn,
+      message,
+      `Unmuted @${displayId(target)}`
+    );
   }
 );
 
@@ -330,17 +509,40 @@ command(
     botAdminRequired: true,
   },
   async (message, conn) => {
-    const target = resolveTargetUser(message);
+    const target =
+      resolveTargetUser(message);
+
     if (!target) {
-      await replyFail(conn, message, "Reply/mention a user.");
+      await replyFail(
+        conn,
+        message,
+        "Reply/mention a user."
+      );
       return;
     }
+
     try {
-      await conn.groupParticipantsUpdate(message.from, [target], "remove");
-      groupCache.delete(message.from);
-      await replyOk(conn, message, `Removed @${displayId(target)}`);
+      await conn.groupParticipantsUpdate(
+        message.from,
+        [target],
+        "remove"
+      );
+
+      groupCache.delete(
+        message.from
+      );
+
+      await replyOk(
+        conn,
+        message,
+        `Removed @${displayId(target)}`
+      );
     } catch {
-      await replyFail(conn, message, "Failed to kick (bot must be admin).");
+      await replyFail(
+        conn,
+        message,
+        "Failed to kick (bot must be admin)."
+      );
     }
   }
 );
