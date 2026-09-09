@@ -10,6 +10,7 @@
  * - Independent reconnect
  * - Manual disconnect
  * - Detailed message debugging
+ * - Anti-delete message cache
  */
 
 import makeWASocket, {
@@ -43,6 +44,15 @@ import {
 import {
   processGroupGuards,
 } from "../messages/groupGuards.js";
+
+/**
+ * Message cache
+ *
+ * Used by .antidelete.
+ */
+import {
+  msgCache,
+} from "../utils/cache.js";
 
 
 /* =========================================================
@@ -137,6 +147,81 @@ async function getBaileysVersion() {
   }
 
   return undefined;
+}
+
+
+/* =========================================================
+ * CACHE MESSAGE FOR ANTI-DELETE
+ * ======================================================= */
+
+/**
+ * Store complete Baileys WAMessage.
+ *
+ * IMPORTANT:
+ * This must happen BEFORE the message is deleted.
+ */
+function cacheIncomingMessage(rawMessage, sessionId) {
+
+  try {
+
+    const remoteJid =
+      rawMessage?.key?.remoteJid;
+
+    const messageId =
+      rawMessage?.key?.id;
+
+    /**
+     * Ignore incomplete messages.
+     */
+    if (
+      !remoteJid ||
+      !messageId ||
+      !rawMessage?.message
+    ) {
+      return;
+    }
+
+    /**
+     * Do not cache protocol messages.
+     */
+    if (
+      rawMessage?.message
+        ?.protocolMessage
+    ) {
+      return;
+    }
+
+    /**
+     * Unique cache key.
+     *
+     * Example:
+     * 1234567890@s.whatsapp.net:ABC123
+     */
+    const cacheKey =
+      `${remoteJid}:${messageId}`;
+
+    /**
+     * Store complete original
+     * Baileys message.
+     */
+    msgCache.set(
+      cacheKey,
+      rawMessage
+    );
+
+    console.log(
+      `💾 MESSAGE CACHED [${sessionId}]:`,
+      cacheKey
+    );
+
+  } catch (error) {
+
+    console.log(
+      `⚠️ Message cache error [${sessionId}]:`,
+      error?.message ||
+        error
+    );
+  }
 }
 
 
@@ -768,6 +853,19 @@ async function createConnection(
 
                   continue;
                 }
+
+
+                /* -----------------------------------------
+                 * ANTI-DELETE CACHE
+                 *
+                 * IMPORTANT:
+                 * Cache BEFORE serialize/handler.
+                 * --------------------------------------- */
+
+                cacheIncomingMessage(
+                  rawMessage,
+                  sessionId
+                );
 
 
                 /* -----------------------------------------
