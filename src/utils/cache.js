@@ -2,46 +2,71 @@
  * Tiny in-memory TTL + max-size caches
  */
 
-/**
- * @param {object} options
- * @param {number} [options.ttlMs] - Entry time-to-live in ms
- * @param {number} [options.max] - Max entries (evict oldest)
- */
-export function createTtlCache({ ttlMs = 5 * 60 * 1000, max = 50 } = {}) {
+export function createTtlCache({
+  ttlMs = 5 * 60 * 1000,
+  max = 50,
+} = {}) {
   const store = new Map();
 
   function evictExpired() {
     const now = Date.now();
+
     for (const [key, entry] of store) {
-      if (entry.expiresAt <= now) store.delete(key);
+      if (entry.expiresAt <= now) {
+        store.delete(key);
+      }
     }
   }
 
   function evictOverflow() {
     while (store.size > max) {
-      const oldest = store.keys().next().value;
+      const oldest =
+        store.keys().next().value;
+
       store.delete(oldest);
     }
   }
 
   return {
     get(key) {
-      const entry = store.get(key);
-      if (!entry) return undefined;
-      if (entry.expiresAt <= Date.now()) {
+      const entry =
+        store.get(key);
+
+      if (!entry) {
+        return undefined;
+      }
+
+      if (
+        entry.expiresAt <=
+        Date.now()
+      ) {
         store.delete(key);
         return undefined;
       }
-      // Refresh insertion order for LRU-ish eviction
+
+      /**
+       * Refresh insertion order
+       */
       store.delete(key);
       store.set(key, entry);
+
       return entry.value;
     },
 
     set(key, value) {
       evictExpired();
+
       store.delete(key);
-      store.set(key, { value, expiresAt: Date.now() + ttlMs });
+
+      store.set(
+        key,
+        {
+          value,
+          expiresAt:
+            Date.now() + ttlMs,
+        }
+      );
+
       evictOverflow();
     },
 
@@ -53,20 +78,42 @@ export function createTtlCache({ ttlMs = 5 * 60 * 1000, max = 50 } = {}) {
       store.clear();
     },
 
+    has(key) {
+      return this.get(key) !== undefined;
+    },
+
     get size() {
       return store.size;
     },
   };
 }
 
-/** Group metadata cache (~3 min, max 50) */
-export const groupCache = createTtlCache({
-  ttlMs: 3 * 60 * 1000,
-  max: 50,
-});
 
-/** Message cache for getMessage retries (~100 entries, 5 min) */
-export const msgCache = createTtlCache({
-  ttlMs: 5 * 60 * 1000,
-  max: 100,
-});
+/**
+ * Group metadata cache
+ */
+export const groupCache =
+  createTtlCache({
+    ttlMs:
+      3 * 60 * 1000,
+
+    max: 50,
+  });
+
+
+/**
+ * WhatsApp message cache.
+ *
+ * 15 minutes is useful for
+ * anti-delete.
+ *
+ * Maximum 500 messages per
+ * running bot process.
+ */
+export const msgCache =
+  createTtlCache({
+    ttlMs:
+      15 * 60 * 1000,
+
+    max: 500,
+  });
