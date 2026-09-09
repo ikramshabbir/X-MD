@@ -8,7 +8,12 @@ import { BOT_INFO } from "../config/constants.js";
 import { getMode } from "../utils/access.js";
 
 async function buildMenuText() {
-  const cmds = getMenuCommands();
+  // Hide AntiDelete from menu
+  const cmds = getMenuCommands().filter(
+    (cmd) =>
+      String(cmd.patternName).toLowerCase() !== "antidelete"
+  );
+
   const byType = new Map();
 
   for (const cmd of cmds) {
@@ -129,6 +134,7 @@ function formatRuntime() {
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0) parts.push(`${minutes}m`);
+
   parts.push(`${secs}s`);
 
   return parts.join(" ");
@@ -185,7 +191,11 @@ command(
       return;
     }
 
-    const cmds = getMenuCommands();
+    // Hide AntiDelete from help lookup too
+    const cmds = getMenuCommands().filter(
+      (cmd) =>
+        String(cmd.patternName).toLowerCase() !== "antidelete"
+    );
 
     const hit =
       cmds.find(
@@ -207,7 +217,8 @@ command(
         )
         .slice(0, 5)
         .map(
-          (c) => `\`${BOT_INFO.PREFIX}${c.patternName}\``
+          (c) =>
+            `\`${BOT_INFO.PREFIX}${c.patternName}\``
         );
 
       await reply(
