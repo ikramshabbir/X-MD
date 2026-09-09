@@ -1,13 +1,13 @@
 /**
  * X-MD / X-ANSARI
- * View Once + AntiDelete
+ * View Once + Global AntiDelete
  *
  * Commands:
  *
  * .vv
  * .antidelete on
  * .antidelete off
- * .antidelete status
+ * .antidelete
  */
 
 import fs from "fs";
@@ -46,7 +46,17 @@ const SETTINGS_FILE =
     "antidelete.json"
   );
 
-let settings = {};
+let settings = {
+  enabled: false,
+};
+
+
+/* =========================================================
+ * PROCESSED DELETE CACHE
+ * ======================================================= */
+
+const processedDeletes =
+  new Map();
 
 
 /* =========================================================
@@ -80,9 +90,21 @@ function loadSettings() {
 
       fs.writeFileSync(
         SETTINGS_FILE,
-        "{}",
+        JSON.stringify(
+          {
+            enabled: false,
+          },
+          null,
+          2
+        ),
         "utf8"
       );
+
+      settings = {
+        enabled: false,
+      };
+
+      return;
     }
 
 
@@ -93,10 +115,21 @@ function loadSettings() {
       );
 
 
-    settings =
+    const parsed =
       data
         ? JSON.parse(data)
         : {};
+
+
+    /*
+     * Old per-chat settings ko ignore karke
+     * new global setting use karte hain.
+     */
+
+    settings = {
+      enabled:
+        parsed.enabled === true,
+    };
 
 
   } catch (error) {
@@ -107,7 +140,9 @@ function loadSettings() {
         error
     );
 
-    settings = {};
+    settings = {
+      enabled: false,
+    };
   }
 }
 
@@ -161,33 +196,22 @@ loadSettings();
 
 
 /* =========================================================
- * CHAT SETTING
+ * GLOBAL STATUS
  * ======================================================= */
 
-export function isAntiDeleteEnabled(
-  jid
-) {
-
-  if (!jid) {
-    return false;
-  }
+export function isAntiDeleteEnabled() {
 
   return (
-    settings[jid] === true
+    settings.enabled === true
   );
 }
 
 
 export function setAntiDelete(
-  jid,
   enabled
 ) {
 
-  if (!jid) {
-    return false;
-  }
-
-  settings[jid] =
+  settings.enabled =
     Boolean(enabled);
 
   saveSettings();
@@ -206,6 +230,23 @@ function getCacheKey(
 ) {
 
   return `${jid}:${messageId}`;
+}
+
+
+/* =========================================================
+ * JID CLEANER
+ * ======================================================= */
+
+function cleanJid(
+  jid
+) {
+
+  if (!jid) {
+    return null;
+  }
+
+  return String(jid)
+    .split(":")[0];
 }
 
 
@@ -239,10 +280,16 @@ function jidToNumber(
  * GET DELETER
  * ======================================================= */
 
-function getMentionJid(
-  protocolKey,
+function getDeleter(
+  deletedKey,
+  originalKey,
   remoteJid
 ) {
+
+  /*
+   * Group:
+   * participant / participantAlt
+   */
 
   if (
     remoteJid?.endsWith(
@@ -251,18 +298,23 @@ function getMentionJid(
   ) {
 
     return (
-      protocolKey?.participant ||
-      protocolKey?.participantAlt ||
-      protocolKey?.remoteJid ||
+      deletedKey?.participant ||
+      deletedKey?.participantAlt ||
+      originalKey?.participant ||
+      originalKey?.participantAlt ||
       "unknown@s.whatsapp.net"
     );
   }
 
 
+  /*
+   * Private chat:
+   * remoteJid itself is normally the other user.
+   */
+
   return (
-    protocolKey?.participant ||
-    protocolKey?.participantAlt ||
-    protocolKey?.remoteJid ||
+    deletedKey?.participant ||
+    deletedKey?.participantAlt ||
     remoteJid
   );
 }
@@ -324,7 +376,6 @@ function unwrapForSend(
     current;
     i++
   ) {
-
 
     if (
       current
@@ -436,6 +487,105 @@ async function downloadMedia(
   return streamToBuffer(
     stream
   );
+}
+
+
+/* =========================================================
+ * GET ORIGINAL DESCRIPTION
+ * ======================================================= */
+
+function getOriginalDescription(
+  rawMessage
+) {
+
+  let content =
+    rawMessage?.message ||
+    rawMessage;
+
+
+  content =
+    unwrapForSend(
+      content
+    );
+
+
+  if (!content) {
+    return "Unknown";
+  }
+
+
+  if (
+    content.conversation
+  ) {
+
+    return content.conversation;
+  }
+
+
+  if (
+    content.extendedTextMessage
+  ) {
+
+    return (
+      content
+        .extendedTextMessage
+        .text ||
+      "Text message"
+    );
+  }
+
+
+  if (
+    content.imageMessage
+  ) {
+
+    return (
+      content.imageMessage.caption ||
+      "[Image]"
+    );
+  }
+
+
+  if (
+    content.videoMessage
+  ) {
+
+    return (
+      content.videoMessage.caption ||
+      "[Video]"
+    );
+  }
+
+
+  if (
+    content.audioMessage
+  ) {
+
+    return "[Audio]";
+  }
+
+
+  if (
+    content.documentMessage
+  ) {
+
+    return (
+      content.documentMessage.fileName
+        ? `[Document] ${content.documentMessage.fileName}`
+        : "[Document]"
+    );
+  }
+
+
+  if (
+    content.stickerMessage
+  ) {
+
+    return "[Sticker]";
+  }
+
+
+  return `[${Object.keys(content).join(", ")}]`;
 }
 
 
@@ -708,6 +858,150 @@ export async function resendRawMessage(
 
 
 /* =========================================================
+ * GET BOT'S OWN CHAT
+ * ======================================================= */
+
+function getOwnerChatJid(
+  conn
+) {
+
+  const ownId =
+    conn?.user?.id;
+
+  if (!ownId) {
+    return null;
+  }
+
+
+  return cleanJid(
+    ownId
+  );
+}
+
+
+/* =========================================================
+ * GROUP NAME
+ * ======================================================= */
+
+async function getGroupName(
+  conn,
+  jid
+) {
+
+  try {
+
+    const metadata =
+      await conn.groupMetadata(
+        jid
+      );
+
+    return (
+      metadata?.subject ||
+      "Unknown Group"
+    );
+
+  } catch {
+
+    return "Unknown Group";
+  }
+}
+
+
+/* =========================================================
+ * SEND ANTI DELETE REPORT
+ * ======================================================= */
+
+async function sendAntiDeleteReport(
+  conn,
+  remoteJid,
+  deleter,
+  original
+) {
+
+  const ownerChat =
+    getOwnerChatJid(
+      conn
+    );
+
+
+  if (!ownerChat) {
+
+    throw new Error(
+      "Bot own WhatsApp JID not available"
+    );
+  }
+
+
+  const isGroup =
+    remoteJid?.endsWith(
+      "@g.us"
+    );
+
+
+  const originalText =
+    getOriginalDescription(
+      original
+    );
+
+
+  let report;
+
+
+  if (isGroup) {
+
+    const groupName =
+      await getGroupName(
+        conn,
+        remoteJid
+      );
+
+
+    report =
+      `🗑️ AntiDelete\n` +
+      `👥 ${groupName}\n` +
+      `👤 User: ${mentionText(deleter)}\n` +
+      `❌ Deleted a message\n` +
+      `💬 Original message: ${originalText}`;
+
+  } else {
+
+    report =
+      `🗑️ AntiDelete\n` +
+      `👤 User: ${mentionText(deleter)}\n` +
+      `❌ Deleted a message\n` +
+      `💬 Original message: ${originalText}`;
+  }
+
+
+  await conn.sendMessage(
+    ownerChat,
+    {
+      text:
+        report,
+
+      mentions:
+        [deleter],
+    }
+  );
+
+
+  /*
+   * Original media/text ko bhi
+   * tumhari You chat mein resend karo.
+   */
+
+  await resendRawMessage(
+    conn,
+    ownerChat,
+    original
+  );
+
+
+  return true;
+}
+
+
+/* =========================================================
  * .VV
  * ======================================================= */
 
@@ -828,17 +1122,6 @@ command(
 
     try {
 
-      /*
-       * IMPORTANT:
-       * Command arguments are extracted
-       * from message.body.
-       *
-       * Examples:
-       * .antidelete on
-       * .antidelete off
-       * .antidelete status
-       */
-
       const args =
         String(
           getCommandArgs(
@@ -850,12 +1133,11 @@ command(
           .toLowerCase();
 
 
-      const jid =
-        message.from;
-
-
       /* ===================================================
        * STATUS
+       *
+       * .antidelete
+       * .antidelete status
        * ================================================= */
 
       if (
@@ -863,18 +1145,12 @@ command(
         args === "status"
       ) {
 
-        const enabled =
-          isAntiDeleteEnabled(
-            jid
-          );
-
-
         return reply(
           conn,
           message,
-          enabled
-            ? "🛡️ AntiDelete is ON for this chat."
-            : "🛡️ AntiDelete is OFF for this chat."
+          isAntiDeleteEnabled()
+            ? "🛡️ AntiDelete: ON"
+            : "🛡️ AntiDelete: OFF"
         );
       }
 
@@ -888,7 +1164,6 @@ command(
       ) {
 
         setAntiDelete(
-          jid,
           true
         );
 
@@ -896,7 +1171,7 @@ command(
         return reply(
           conn,
           message,
-          "✅ AntiDelete ON\n\nDeleted messages will be recovered automatically in this chat."
+          "✅ AntiDelete: ON"
         );
       }
 
@@ -910,7 +1185,6 @@ command(
       ) {
 
         setAntiDelete(
-          jid,
           false
         );
 
@@ -918,19 +1192,15 @@ command(
         return reply(
           conn,
           message,
-          "❌ AntiDelete OFF"
+          "❌ AntiDelete: OFF"
         );
       }
 
 
-      /* ===================================================
-       * INVALID ARGUMENT
-       * ================================================= */
-
       return reply(
         conn,
         message,
-        "Use:\n.antidelete on\n.antidelete off\n.antidelete status"
+        "Use:\n.antidelete on\n.antidelete off\n.antidelete"
       );
 
 
@@ -955,6 +1225,136 @@ command(
 
 
 /* =========================================================
+ * EXTRACT DELETE INFORMATION
+ * ======================================================= */
+
+function extractDeleteInfo(
+  update
+) {
+
+  /*
+   * Baileys normalized revoke event:
+   *
+   * update.key
+   * update.update.messageStubType
+   * update.update.key
+   */
+
+
+  const inner =
+    update?.update;
+
+
+  const stubType =
+    inner?.messageStubType;
+
+
+  const stubString =
+    String(
+      stubType || ""
+    )
+      .toUpperCase();
+
+
+  /*
+   * Normalized REVOKE
+   */
+
+  if (
+    stubString ===
+    "REVOKE"
+  ) {
+
+    const deletedKey =
+      inner?.key ||
+      update?.key;
+
+
+    return {
+      deletedKey,
+      remoteJid:
+        deletedKey?.remoteJid ||
+        update?.key?.remoteJid,
+    };
+  }
+
+
+  /*
+   * Raw protocolMessage fallback
+   */
+
+  const protocol =
+    inner?.message
+      ?.protocolMessage ||
+    update
+      ?.update
+      ?.message
+      ?.protocolMessage;
+
+
+  if (protocol) {
+
+    const protocolType =
+      String(
+        protocol.type ||
+        ""
+      )
+        .toUpperCase();
+
+
+    if (
+      protocolType ===
+        "REVOKE" ||
+      protocolType ===
+        "DELETE"
+    ) {
+
+      const deletedKey =
+        protocol.key;
+
+
+      return {
+        deletedKey,
+        remoteJid:
+          deletedKey?.remoteJid,
+      };
+    }
+  }
+
+
+  /*
+   * Some versions may provide
+   * a numeric protocol type.
+   *
+   * REVOKE is 0 in Baileys proto.
+   */
+
+  if (
+    inner?.message
+      ?.protocolMessage
+      ?.type === 0
+  ) {
+
+    const deletedKey =
+      inner
+        .message
+        .protocolMessage
+        .key;
+
+
+    return {
+      deletedKey,
+      remoteJid:
+        deletedKey?.remoteJid,
+    };
+  }
+
+
+  return null;
+}
+
+
+/* =========================================================
  * AUTOMATIC DELETED MESSAGE HANDLER
  * ======================================================= */
 
@@ -966,87 +1366,49 @@ export async function handleDeletedMessage(
 
   try {
 
-    const protocol =
-      update
-        ?.update
-        ?.message
-        ?.protocolMessage;
-
-
-    if (!protocol) {
-
-      return false;
-    }
-
-
-    /* =====================================================
-     * CHECK DELETE TYPE
-     * =================================================== */
-
-    const type =
-      String(
-        protocol.type ||
-        ""
-      )
-        .toUpperCase();
-
+    /*
+     * GLOBAL SWITCH
+     */
 
     if (
-      type !== "REVOKE" &&
-      type !== "DELETE"
+      !isAntiDeleteEnabled()
     ) {
 
       return false;
     }
 
 
-    /* =====================================================
-     * DELETED MESSAGE KEY
-     * =================================================== */
-
-    const deletedKey =
-      protocol.key;
+    const deleteInfo =
+      extractDeleteInfo(
+        update
+      );
 
 
-    if (!deletedKey) {
+    if (!deleteInfo) {
 
       return false;
     }
 
 
-    const remoteJid =
-      deletedKey.remoteJid;
+    const {
+      deletedKey,
+      remoteJid,
+    } = deleteInfo;
+
+
+    if (
+      !deletedKey ||
+      !remoteJid ||
+      !deletedKey.id
+    ) {
+
+      return false;
+    }
+
 
     const messageId =
       deletedKey.id;
 
-
-    if (
-      !remoteJid ||
-      !messageId
-    ) {
-
-      return false;
-    }
-
-
-    /* =====================================================
-     * CHECK ANTI DELETE STATUS
-     * =================================================== */
-
-    if (
-      !isAntiDeleteEnabled(
-        remoteJid
-      )
-    ) {
-
-      return false;
-    }
-
-
-    /* =====================================================
-     * FIND CACHED MESSAGE
-     * ===================================================== */
 
     const cacheKey =
       getCacheKey(
@@ -1054,6 +1416,24 @@ export async function handleDeletedMessage(
         messageId
       );
 
+
+    /*
+     * Prevent duplicate recovery
+     */
+
+    if (
+      processedDeletes.has(
+        cacheKey
+      )
+    ) {
+
+      return false;
+    }
+
+
+    /*
+     * Original message
+     */
 
     const original =
       msgCache.get(
@@ -1064,100 +1444,86 @@ export async function handleDeletedMessage(
     if (!original) {
 
       console.log(
-        `⚠️ AntiDelete cache miss [${sessionId}]:`,
-        cacheKey
+        `⚠️ AntiDelete cache miss [${sessionId}]: ${cacheKey}`
       );
 
       return false;
     }
 
 
-    /* =====================================================
-     * FIND WHO DELETED
-     * ===================================================== */
+    /*
+     * Mark processed BEFORE sending.
+     */
+
+    processedDeletes.set(
+      cacheKey,
+      Date.now()
+    );
+
+
+    /*
+     * Deleter
+     */
 
     const deleter =
-      getMentionJid(
+      getDeleter(
         deletedKey,
+        original?.key,
         remoteJid
       );
 
 
-    const isGroup =
-      remoteJid.endsWith(
-        "@g.us"
-      );
-
-
-    /* =====================================================
-     * SEND HEADER
-     * ===================================================== */
-
-    if (isGroup) {
-
-      await conn.sendMessage(
+    console.log(
+      `🗑️ DELETE DETECTED [${sessionId}]`,
+      {
         remoteJid,
-        {
-          text:
-            `🗑️ *AntiDelete*\n👤 User: ${mentionText(deleter)}\n❌ Deleted a message`,
-
-          mentions:
-            [deleter],
-        }
-      );
-
-    } else {
-
-      await conn.sendMessage(
-        remoteJid,
-        {
-          text:
-            "🗑️ *AntiDelete*\n❌ Message deleted",
-        }
-      );
-    }
+        messageId,
+        deleter,
+      }
+    );
 
 
-    /* =====================================================
-     * RESEND ORIGINAL
-     * ===================================================== */
+    /*
+     * Send ONLY to owner's You chat.
+     */
 
-    try {
-
-      await resendRawMessage(
-        conn,
-        remoteJid,
-        original
-      );
-
-
-    } catch (mediaError) {
-
-      console.log(
-        `⚠️ AntiDelete resend error [${sessionId}]:`,
-        mediaError?.stack ||
-          mediaError?.message ||
-          mediaError
-      );
-
-
-      await conn.sendMessage(
-        remoteJid,
-        {
-          text:
-            `💬 Original message recover nahi ho saka.\n\nReason: ${
-              mediaError?.message ||
-              "Unknown error"
-            }`,
-        }
-      );
-    }
+    await sendAntiDeleteReport(
+      conn,
+      remoteJid,
+      deleter,
+      original
+    );
 
 
     console.log(
-      `🛡️ AntiDelete recovered [${sessionId}]:`,
+      `🛡️ AntiDelete recovered to You [${sessionId}]:`,
       cacheKey
     );
+
+
+    /*
+     * Keep processed map small.
+     */
+
+    if (
+      processedDeletes.size >
+      1000
+    ) {
+
+      const oldest =
+        processedDeletes
+          .keys()
+          .next()
+          .value;
+
+
+      if (oldest) {
+
+        processedDeletes.delete(
+          oldest
+        );
+      }
+    }
 
 
     return true;
