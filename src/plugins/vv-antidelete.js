@@ -12,7 +12,7 @@
  * AntiDelete:
  * - Global ON/OFF
  * - Private + groups
- * - Reports only to bot's own WhatsApp chat
+ * - Reports only to bot owner's "You" chat
  * - Never reposts deleted messages in original chat
  * - Text + image + video + audio + document + sticker
  */
@@ -27,25 +27,28 @@ import {
   msgCache,
   makeMessageCacheKey,
 } from "../utils/cache.js";
+import { BOT_INFO } from "../config/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-/* =========================================================
- * DATABASE
- * ======================================================= */
 
 const DB_FILE = path.join(
   __dirname,
   "../database/antidelete.json"
 );
 
+/* =========================================================
+   DATABASE
+========================================================= */
+
 function ensureDatabase() {
   try {
     const dir = path.dirname(DB_FILE);
 
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, {
+        recursive: true,
+      });
     }
 
     if (!fs.existsSync(DB_FILE)) {
@@ -72,11 +75,17 @@ function readSettings() {
   ensureDatabase();
 
   try {
-    const data = fs.readFileSync(DB_FILE, "utf8");
+    const data = fs.readFileSync(
+      DB_FILE,
+      "utf8"
+    );
+
     const parsed = JSON.parse(data);
 
     return {
-      enabled: Boolean(parsed?.enabled),
+      enabled: Boolean(
+        parsed?.enabled
+      ),
     };
   } catch (error) {
     console.log(
@@ -98,7 +107,9 @@ function writeSettings(settings) {
       DB_FILE,
       JSON.stringify(
         {
-          enabled: Boolean(settings?.enabled),
+          enabled: Boolean(
+            settings?.enabled
+          ),
         },
         null,
         2
@@ -127,39 +138,57 @@ export function setAntiDelete(enabled) {
 }
 
 /* =========================================================
- * DELETE PROCESS LOCK
- * ======================================================= */
+   DELETE LOCK
+========================================================= */
 
 const processedDeletes = new Map();
 
-const DELETE_LOCK_MS = 60 * 1000;
+const DELETE_LOCK_MS =
+  60 * 1000;
 
 function alreadyProcessed(cacheKey) {
-  if (!cacheKey) return true;
+  if (!cacheKey) {
+    return true;
+  }
 
   const now = Date.now();
 
-  for (const [key, timestamp] of processedDeletes) {
-    if (now - timestamp > DELETE_LOCK_MS) {
+  for (const [
+    key,
+    timestamp,
+  ] of processedDeletes) {
+    if (
+      now - timestamp >
+      DELETE_LOCK_MS
+    ) {
       processedDeletes.delete(key);
     }
   }
 
-  if (processedDeletes.has(cacheKey)) {
+  if (
+    processedDeletes.has(
+      cacheKey
+    )
+  ) {
     return true;
   }
 
-  processedDeletes.set(cacheKey, now);
+  processedDeletes.set(
+    cacheKey,
+    now
+  );
 
   return false;
 }
 
 /* =========================================================
- * JID HELPERS
- * ======================================================= */
+   JID HELPERS
+========================================================= */
 
 function cleanJid(jid) {
-  if (!jid) return null;
+  if (!jid) {
+    return null;
+  }
 
   return String(jid)
     .replace(/:.*?(?=@)/, "")
@@ -167,7 +196,9 @@ function cleanJid(jid) {
 }
 
 function jidToNumber(jid) {
-  if (!jid) return "Unknown";
+  if (!jid) {
+    return "Unknown";
+  }
 
   const clean = String(jid)
     .split(":")[0]
@@ -178,44 +209,67 @@ function jidToNumber(jid) {
 }
 
 function isGroupJid(jid) {
-  return String(jid || "").endsWith("@g.us");
+  return String(
+    jid || ""
+  ).endsWith("@g.us");
 }
 
 /* =========================================================
- * BOT SELF CHAT
- * ======================================================= */
+   OWNER CHAT
+========================================================= */
 
-function getOwnerChatJid(conn) {
-  const id =
-    conn?.user?.id ||
-    conn?.user?.jid ||
-    conn?.user?.lid ||
-    null;
+function getOwnerChatJid() {
+  const raw =
+    BOT_INFO?.OWNER ||
+    process.env.OWNER_NUMBER ||
+    "";
 
-  if (!id) {
+  const number = String(raw)
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/\D/g, "");
+
+  if (!number) {
     console.log(
-      "⚠️ AntiDelete: bot self JID not available"
+      "⚠️ AntiDelete: OWNER_NUMBER is empty or invalid"
     );
 
     return null;
   }
 
-  return id;
+  const ownerJid =
+    `${number}@s.whatsapp.net`;
+
+  console.log(
+    "👑 AntiDelete owner JID:",
+    ownerJid
+  );
+
+  return ownerJid;
 }
 
 /* =========================================================
- * GROUP NAME
- * ======================================================= */
+   GROUP NAME
+========================================================= */
 
-async function getGroupName(conn, jid) {
+async function getGroupName(
+  conn,
+  jid
+) {
   if (!isGroupJid(jid)) {
     return null;
   }
 
   try {
-    const metadata = await conn.groupMetadata(jid);
+    const metadata =
+      await conn.groupMetadata(
+        jid
+      );
 
-    return metadata?.subject || jid;
+    return (
+      metadata?.subject ||
+      jid
+    );
   } catch (error) {
     console.log(
       "⚠️ AntiDelete group metadata error:",
@@ -227,24 +281,28 @@ async function getGroupName(conn, jid) {
 }
 
 /* =========================================================
- * FIND DELETE ACTOR
- * ======================================================= */
+   ACTOR
+========================================================= */
 
-function getActorFromUpdate(update) {
-  const originalKey = update?.key || null;
-  const innerKey = update?.update?.key || null;
+function getActorFromUpdate(
+  update
+) {
+  const originalKey =
+    update?.key || null;
+
+  const innerKey =
+    update?.update?.key ||
+    null;
 
   if (!originalKey) {
     return null;
   }
 
-  /*
-   * GROUP
-   *
-   * In a revoke/update event the inner key can contain
-   * the participant who performed the deletion.
-   */
-  if (isGroupJid(originalKey.remoteJid)) {
+  if (
+    isGroupJid(
+      originalKey.remoteJid
+    )
+  ) {
     return (
       innerKey?.participantAlt ||
       innerKey?.participant ||
@@ -254,9 +312,6 @@ function getActorFromUpdate(update) {
     );
   }
 
-  /*
-   * PRIVATE CHAT
-   */
   if (innerKey?.fromMe) {
     return (
       innerKey?.participantAlt ||
@@ -276,8 +331,8 @@ function getActorFromUpdate(update) {
 }
 
 /* =========================================================
- * MENTION
- * ======================================================= */
+   MENTION
+========================================================= */
 
 function makeMention(jid) {
   if (!jid) {
@@ -287,7 +342,8 @@ function makeMention(jid) {
     };
   }
 
-  const clean = cleanJid(jid);
+  const clean =
+    cleanJid(jid);
 
   if (!clean) {
     return {
@@ -297,67 +353,112 @@ function makeMention(jid) {
   }
 
   return {
-    text: `@${jidToNumber(clean)}`,
+    text:
+      `@${jidToNumber(clean)}`,
     mentions: [clean],
   };
 }
 
 /* =========================================================
- * MESSAGE DESCRIPTION
- * ======================================================= */
+   ORIGINAL MESSAGE DESCRIPTION
+========================================================= */
 
-function getOriginalDescription(rawMessage) {
-  const content = rawMessage?.message;
+function getOriginalDescription(
+  rawMessage
+) {
+  const content =
+    rawMessage?.message;
 
   if (!content) {
     return "Unknown";
   }
 
-  if (typeof content.conversation === "string") {
+  if (
+    typeof content.conversation ===
+    "string"
+  ) {
     return content.conversation;
   }
 
-  if (content.extendedTextMessage?.text) {
-    return content.extendedTextMessage.text;
+  if (
+    content.extendedTextMessage
+      ?.text
+  ) {
+    return (
+      content.extendedTextMessage
+        .text
+    );
   }
 
-  if (content.imageMessage?.caption) {
-    return content.imageMessage.caption;
+  if (
+    content.imageMessage
+      ?.caption
+  ) {
+    return (
+      content.imageMessage
+        .caption
+    );
   }
 
-  if (content.videoMessage?.caption) {
-    return content.videoMessage.caption;
+  if (
+    content.videoMessage
+      ?.caption
+  ) {
+    return (
+      content.videoMessage
+        .caption
+    );
   }
 
-  if (content.documentMessage?.caption) {
-    return content.documentMessage.caption;
+  if (
+    content.documentMessage
+      ?.caption
+  ) {
+    return (
+      content.documentMessage
+        .caption
+    );
   }
 
-  if (content.stickerMessage) {
+  if (
+    content.stickerMessage
+  ) {
     return "[Sticker]";
   }
 
-  if (content.imageMessage) {
+  if (
+    content.imageMessage
+  ) {
     return "[Image]";
   }
 
-  if (content.videoMessage) {
+  if (
+    content.videoMessage
+  ) {
     return "[Video]";
   }
 
-  if (content.audioMessage) {
+  if (
+    content.audioMessage
+  ) {
     return "[Audio]";
   }
 
-  if (content.documentMessage) {
+  if (
+    content.documentMessage
+  ) {
     return "[Document]";
   }
 
-  if (content.locationMessage) {
+  if (
+    content.locationMessage
+  ) {
     return "[Location]";
   }
 
-  if (content.contactMessage) {
+  if (
+    content.contactMessage
+  ) {
     return "[Contact]";
   }
 
@@ -365,11 +466,14 @@ function getOriginalDescription(rawMessage) {
 }
 
 /* =========================================================
- * MEDIA TYPE
- * ======================================================= */
+   MEDIA TYPE
+========================================================= */
 
-function getMediaType(rawMessage) {
-  const content = rawMessage?.message;
+function getMediaType(
+  rawMessage
+) {
+  const content =
+    rawMessage?.message;
 
   if (!content) {
     return null;
@@ -387,11 +491,15 @@ function getMediaType(rawMessage) {
     return "audio";
   }
 
-  if (content.documentMessage) {
+  if (
+    content.documentMessage
+  ) {
     return "document";
   }
 
-  if (content.stickerMessage) {
+  if (
+    content.stickerMessage
+  ) {
     return "sticker";
   }
 
@@ -399,35 +507,66 @@ function getMediaType(rawMessage) {
 }
 
 /* =========================================================
- * VIEW ONCE UNWRAP
- * ======================================================= */
+   VIEW ONCE HELPERS
+========================================================= */
 
-function unwrapViewOnce(message) {
+function unwrapViewOnce(
+  message
+) {
   if (!message) {
     return null;
   }
 
   let current = message;
 
-  for (let i = 0; i < 10 && current; i++) {
-    if (current.ephemeralMessage?.message) {
-      current = current.ephemeralMessage.message;
-      continue;
-    }
-
-    if (current.viewOnceMessage?.message) {
-      current = current.viewOnceMessage.message;
-      continue;
-    }
-
-    if (current.viewOnceMessageV2?.message) {
-      current = current.viewOnceMessageV2.message;
-      continue;
-    }
-
-    if (current.viewOnceMessageV2Extension?.message) {
+  for (
+    let i = 0;
+    i < 10 && current;
+    i++
+  ) {
+    if (
+      current.ephemeralMessage
+        ?.message
+    ) {
       current =
-        current.viewOnceMessageV2Extension.message;
+        current.ephemeralMessage
+          .message;
+
+      continue;
+    }
+
+    if (
+      current.viewOnceMessage
+        ?.message
+    ) {
+      current =
+        current.viewOnceMessage
+          .message;
+
+      continue;
+    }
+
+    if (
+      current.viewOnceMessageV2
+        ?.message
+    ) {
+      current =
+        current.viewOnceMessageV2
+          .message;
+
+      continue;
+    }
+
+    if (
+      current
+        .viewOnceMessageV2Extension
+        ?.message
+    ) {
+      current =
+        current
+          .viewOnceMessageV2Extension
+          .message;
+
       continue;
     }
 
@@ -437,12 +576,11 @@ function unwrapViewOnce(message) {
   return current;
 }
 
-/* =========================================================
- * FIND VIEW ONCE MEDIA
- * ======================================================= */
-
-function findViewOnceContent(message) {
-  const unwrapped = unwrapViewOnce(message);
+function findViewOnceContent(
+  message
+) {
+  const unwrapped =
+    unwrapViewOnce(message);
 
   if (!unwrapped) {
     return null;
@@ -451,28 +589,34 @@ function findViewOnceContent(message) {
   if (unwrapped.imageMessage) {
     return {
       type: "image",
-      content: unwrapped.imageMessage,
+      content:
+        unwrapped.imageMessage,
     };
   }
 
   if (unwrapped.videoMessage) {
     return {
       type: "video",
-      content: unwrapped.videoMessage,
+      content:
+        unwrapped.videoMessage,
     };
   }
 
   if (unwrapped.audioMessage) {
     return {
       type: "audio",
-      content: unwrapped.audioMessage,
+      content:
+        unwrapped.audioMessage,
     };
   }
 
-  if (unwrapped.documentMessage) {
+  if (
+    unwrapped.documentMessage
+  ) {
     return {
       type: "document",
-      content: unwrapped.documentMessage,
+      content:
+        unwrapped.documentMessage,
     };
   }
 
@@ -480,51 +624,74 @@ function findViewOnceContent(message) {
 }
 
 /* =========================================================
- * RESEND ORIGINAL MESSAGE
- * ======================================================= */
+   SEND RECOVERED MESSAGE
+========================================================= */
 
 async function resendRawMessage(
   conn,
   ownerJid,
   rawMessage
 ) {
-  if (!conn || !ownerJid || !rawMessage) {
+  if (
+    !conn ||
+    !ownerJid ||
+    !rawMessage
+  ) {
     return false;
   }
 
-  const mediaType = getMediaType(rawMessage);
+  const mediaType =
+    getMediaType(rawMessage);
 
   try {
-    const content = rawMessage?.message;
+    const content =
+      rawMessage?.message;
 
     /* TEXT */
-    if (typeof content?.conversation === "string") {
-      await conn.sendMessage(ownerJid, {
-        text: content.conversation,
-      });
+
+    if (
+      typeof content?.conversation ===
+      "string"
+    ) {
+      await conn.sendMessage(
+        ownerJid,
+        {
+          text:
+            content.conversation,
+        }
+      );
 
       return true;
     }
 
-    /* EXTENDED TEXT */
-    if (content?.extendedTextMessage?.text) {
-      await conn.sendMessage(ownerJid, {
-        text: content.extendedTextMessage.text,
-      });
+    if (
+      content?.extendedTextMessage
+        ?.text
+    ) {
+      await conn.sendMessage(
+        ownerJid,
+        {
+          text:
+            content.extendedTextMessage
+              .text,
+        }
+      );
 
       return true;
     }
 
     /* MEDIA */
+
     if (mediaType) {
       let buffer;
 
       try {
-        buffer = await conn.downloadMediaMessage(
-          rawMessage,
-          "buffer",
-          {}
-        );
+        buffer =
+          await conn.downloadMediaMessage(
+            rawMessage,
+            "buffer",
+            {}
+          );
       } catch (error) {
         console.log(
           "⚠️ AntiDelete media download error:",
@@ -539,72 +706,128 @@ async function resendRawMessage(
       }
 
       /* IMAGE */
-      if (mediaType === "image") {
-        await conn.sendMessage(ownerJid, {
-          image: buffer,
-          caption:
-            content?.imageMessage?.caption || "",
-        });
+
+      if (
+        mediaType === "image"
+      ) {
+        await conn.sendMessage(
+          ownerJid,
+          {
+            image: buffer,
+            caption:
+              content
+                ?.imageMessage
+                ?.caption ||
+              "",
+          }
+        );
 
         return true;
       }
 
       /* VIDEO */
-      if (mediaType === "video") {
-        await conn.sendMessage(ownerJid, {
-          video: buffer,
-          caption:
-            content?.videoMessage?.caption || "",
-        });
+
+      if (
+        mediaType === "video"
+      ) {
+        await conn.sendMessage(
+          ownerJid,
+          {
+            video: buffer,
+            caption:
+              content
+                ?.videoMessage
+                ?.caption ||
+              "",
+          }
+        );
 
         return true;
       }
 
       /* AUDIO */
-      if (mediaType === "audio") {
-        await conn.sendMessage(ownerJid, {
-          audio: buffer,
-          mimetype:
-            content?.audioMessage?.mimetype ||
-            "audio/mp4",
-          ptt:
-            content?.audioMessage?.ptt === true,
-        });
+
+      if (
+        mediaType === "audio"
+      ) {
+        await conn.sendMessage(
+          ownerJid,
+          {
+            audio: buffer,
+            mimetype:
+              content
+                ?.audioMessage
+                ?.mimetype ||
+              "audio/mp4",
+            ptt:
+              content
+                ?.audioMessage
+                ?.ptt === true,
+          }
+        );
 
         return true;
       }
 
       /* DOCUMENT */
-      if (mediaType === "document") {
-        await conn.sendMessage(ownerJid, {
-          document: buffer,
-          mimetype:
-            content?.documentMessage?.mimetype ||
-            "application/octet-stream",
-          fileName:
-            content?.documentMessage?.fileName ||
-            "recovered-document",
-          caption:
-            content?.documentMessage?.caption || "",
-        });
+
+      if (
+        mediaType ===
+        "document"
+      ) {
+        await conn.sendMessage(
+          ownerJid,
+          {
+            document: buffer,
+            mimetype:
+              content
+                ?.documentMessage
+                ?.mimetype ||
+              "application/octet-stream",
+            fileName:
+              content
+                ?.documentMessage
+                ?.fileName ||
+              "recovered-document",
+            caption:
+              content
+                ?.documentMessage
+                ?.caption ||
+              "",
+          }
+        );
 
         return true;
       }
 
       /* STICKER */
-      if (mediaType === "sticker") {
-        await conn.sendMessage(ownerJid, {
-          sticker: buffer,
-        });
+
+      if (
+        mediaType ===
+        "sticker"
+      ) {
+        await conn.sendMessage(
+          ownerJid,
+          {
+            sticker: buffer,
+          }
+        );
 
         return true;
       }
     }
 
     /* FALLBACK */
-    await conn.sendMessage(ownerJid, {
-      text: getOriginalDescription(rawMessage),
-    });
+
+    await conn.sendMessage(
+      ownerJid,
+      {
+        text:
+          getOriginalDescription(
+            rawMessage
+          ),
+      }
+    );
 
     return true;
   } catch (error) {
@@ -620,18 +843,25 @@ async function resendRawMessage(
 }
 
 /* =========================================================
- * DELETE EVENT PARSER
- * ======================================================= */
+   DELETE INFORMATION
+========================================================= */
 
-function extractDeleteInfo(update) {
+function extractDeleteInfo(
+  update
+) {
   if (!update) {
     return null;
   }
 
-  const outerKey = update?.key;
-  const innerUpdate = update?.update;
+  const outerKey =
+    update?.key;
 
-  const stub = innerUpdate?.messageStubType;
+  const innerUpdate =
+    update?.update;
+
+  const stub =
+    innerUpdate
+      ?.messageStubType;
 
   const isRevoke =
     stub === 0 ||
@@ -639,30 +869,31 @@ function extractDeleteInfo(update) {
     stub === "revoke" ||
     Boolean(
       innerUpdate &&
-        innerUpdate.message === null &&
+        innerUpdate.message ===
+          null &&
         innerUpdate.key
     );
 
-  /*
-   * NORMAL MESSAGES.UPDATE REVOKE
-   */
   if (
     isRevoke &&
     outerKey?.remoteJid &&
     outerKey?.id
   ) {
     return {
-      targetKey: outerKey,
-      actorKey: innerUpdate?.key || null,
+      targetKey:
+        outerKey,
+      actorKey:
+        innerUpdate?.key ||
+        null,
     };
   }
 
-  /*
-   * PROTOCOL MESSAGE FALLBACK
-   */
   const protocol =
-    update?.update?.message?.protocolMessage ||
-    update?.message?.protocolMessage ||
+    update?.update
+      ?.message
+      ?.protocolMessage ||
+    update?.message
+      ?.protocolMessage ||
     update?.protocolMessage;
 
   if (
@@ -671,25 +902,30 @@ function extractDeleteInfo(update) {
     protocol?.key?.id
   ) {
     return {
-      targetKey: protocol.key,
-      actorKey: update?.key || null,
+      targetKey:
+        protocol.key,
+      actorKey:
+        update?.key ||
+        null,
     };
   }
 
-  /*
-   * GENERIC FALLBACK
-   */
   if (
     outerKey?.remoteJid &&
     outerKey?.id &&
     (
-      innerUpdate?.message === null ||
-      innerUpdate?.messageStubType
+      innerUpdate
+        ?.message === null ||
+      innerUpdate
+        ?.messageStubType
     )
   ) {
     return {
-      targetKey: outerKey,
-      actorKey: innerUpdate?.key || null,
+      targetKey:
+        outerKey,
+      actorKey:
+        innerUpdate?.key ||
+        null,
     };
   }
 
@@ -697,8 +933,8 @@ function extractDeleteInfo(update) {
 }
 
 /* =========================================================
- * SEND ANTIDELETE REPORT
- * ======================================================= */
+   ANTI DELETE REPORT
+========================================================= */
 
 async function sendAntiDeleteReport(
   conn,
@@ -715,7 +951,8 @@ async function sendAntiDeleteReport(
     return false;
   }
 
-  const ownerJid = getOwnerChatJid(conn);
+  const ownerJid =
+    getOwnerChatJid();
 
   if (!ownerJid) {
     console.log(
@@ -725,15 +962,19 @@ async function sendAntiDeleteReport(
     return false;
   }
 
-  const remoteJid = targetKey.remoteJid;
-  const group = isGroupJid(remoteJid);
+  const remoteJid =
+    targetKey.remoteJid;
 
-  let actor = getActorFromUpdate({
-    key: targetKey,
-    update: {
-      key: actorKey,
-    },
-  });
+  const group =
+    isGroupJid(remoteJid);
+
+  let actor =
+    getActorFromUpdate({
+      key: targetKey,
+      update: {
+        key: actorKey,
+      },
+    });
 
   if (!actor) {
     actor =
@@ -749,26 +990,33 @@ async function sendAntiDeleteReport(
   actor = cleanJid(actor);
 
   const description =
-    getOriginalDescription(originalMessage);
+    getOriginalDescription(
+      originalMessage
+    );
 
   let report = "";
   let mentions = [];
 
-  /* =====================================================
-   * GROUP REPORT
-   * =================================================== */
+  /* GROUP */
 
   if (group) {
     const groupName =
-      await getGroupName(conn, remoteJid);
+      await getGroupName(
+        conn,
+        remoteJid
+      );
 
-    const mention = makeMention(actor);
+    const mention =
+      makeMention(actor);
 
-    mentions = mention.mentions;
+    mentions =
+      mention.mentions;
 
     report = [
       "🗑️ AntiDelete",
-      `👥 ${groupName || "Group"}`,
+      `👥 ${
+        groupName || "Group"
+      }`,
       `👤 User: ${
         mention.text ||
         `@${jidToNumber(actor)}`
@@ -778,9 +1026,7 @@ async function sendAntiDeleteReport(
     ].join("\n");
   }
 
-  /* =====================================================
-   * PRIVATE REPORT
-   * =================================================== */
+  /* PRIVATE */
 
   else {
     report = [
@@ -793,15 +1039,21 @@ async function sendAntiDeleteReport(
     ].join("\n");
   }
 
-  /* =====================================================
-   * REPORT MESSAGE
-   * =================================================== */
+  /* REPORT */
 
   try {
-    await conn.sendMessage(ownerJid, {
-      text: report,
-      mentions,
-    });
+    await conn.sendMessage(
+      ownerJid,
+      {
+        text: report,
+        mentions,
+      }
+    );
+
+    console.log(
+      `📤 AntiDelete report sent to OWNER [${sessionId}]:`,
+      ownerJid
+    );
   } catch (error) {
     console.log(
       "⚠️ AntiDelete report send error:",
@@ -813,23 +1065,30 @@ async function sendAntiDeleteReport(
     return false;
   }
 
-  /* =====================================================
-   * ORIGINAL MESSAGE / MEDIA
-   * =================================================== */
+  /* RECOVER ORIGINAL */
 
   try {
-    const sent = await resendRawMessage(
-      conn,
-      ownerJid,
-      originalMessage
+    const sent =
+      await resendRawMessage(
+        conn,
+        ownerJid,
+        originalMessage
+      );
+
+    console.log(
+      `📦 AntiDelete recovery result [${sessionId}]:`,
+      sent
     );
 
     if (!sent) {
-      await conn.sendMessage(ownerJid, {
-        text:
-          `📦 Recovered message:\n` +
-          description,
-      });
+      await conn.sendMessage(
+        ownerJid,
+        {
+          text:
+            `📦 Recovered message:\n` +
+            description,
+        }
+      );
     }
   } catch (error) {
     console.log(
@@ -844,8 +1103,8 @@ async function sendAntiDeleteReport(
 }
 
 /* =========================================================
- * HANDLE DELETED MESSAGE
- * ======================================================= */
+   HANDLE DELETED MESSAGE
+========================================================= */
 
 export async function handleDeletedMessage(
   conn,
@@ -853,29 +1112,36 @@ export async function handleDeletedMessage(
   sessionId = "default"
 ) {
   try {
-    if (!isAntiDeleteEnabled()) {
+    if (
+      !isAntiDeleteEnabled()
+    ) {
       return false;
     }
 
-    const info = extractDeleteInfo(update);
+    const info =
+      extractDeleteInfo(update);
 
     if (!info) {
       return false;
     }
 
-    const targetKey = info.targetKey;
+    const targetKey =
+      info.targetKey;
 
-    const cacheKey = makeMessageCacheKey(
-      sessionId,
-      targetKey.remoteJid,
-      targetKey.id
-    );
+    const cacheKey =
+      makeMessageCacheKey(
+        sessionId,
+        targetKey.remoteJid,
+        targetKey.id
+      );
 
     if (!cacheKey) {
       return false;
     }
 
-    if (alreadyProcessed(cacheKey)) {
+    if (
+      alreadyProcessed(cacheKey)
+    ) {
       return false;
     }
 
@@ -905,7 +1171,9 @@ export async function handleDeletedMessage(
       originalMessage
     );
 
-    msgCache.delete(cacheKey);
+    msgCache.delete(
+      cacheKey
+    );
 
     return true;
   } catch (error) {
@@ -921,31 +1189,39 @@ export async function handleDeletedMessage(
 }
 
 /* =========================================================
- * .ANTIDELETE COMMAND
- * ======================================================= */
+   .ANTIDELETE COMMAND
+========================================================= */
 
 command(
   {
-    pattern: "antidelete",
-    desc: "Enable, disable or check AntiDelete",
+    pattern:
+      "antidelete",
+    desc:
+      "Enable, disable or check AntiDelete",
     type: "misc",
   },
-  async (message, conn) => {
-    const args = String(
-      message?.body || ""
-    )
-      .trim()
-      .split(/\s+/)
-      .slice(1)
-      .join(" ")
-      .toLowerCase();
+  async (
+    message,
+    conn
+  ) => {
+    const args =
+      String(
+        message?.body ||
+          ""
+      )
+        .trim()
+        .split(/\s+/)
+        .slice(1)
+        .join(" ")
+        .toLowerCase();
 
-    /* ON */
     if (
       args === "on" ||
       args === "enable"
     ) {
-      setAntiDelete(true);
+      setAntiDelete(
+        true
+      );
 
       return replyOk(
         conn,
@@ -954,12 +1230,13 @@ command(
       );
     }
 
-    /* OFF */
     if (
       args === "off" ||
       args === "disable"
     ) {
-      setAntiDelete(false);
+      setAntiDelete(
+        false
+      );
 
       return replyOk(
         conn,
@@ -968,7 +1245,6 @@ command(
       );
     }
 
-    /* STATUS */
     const enabled =
       isAntiDeleteEnabled();
 
@@ -983,18 +1259,23 @@ command(
 );
 
 /* =========================================================
- * .VV COMMAND
- * ======================================================= */
+   .VV COMMAND
+========================================================= */
 
 command(
   {
     pattern: "vv",
-    desc: "Open View Once media",
+    desc:
+      "Open View Once media",
     type: "misc",
   },
-  async (message, conn) => {
+  async (
+    message,
+    conn
+  ) => {
     try {
-      const quoted = message?.quoted;
+      const quoted =
+        message?.quoted;
 
       if (!quoted) {
         return replyFail(
@@ -1074,20 +1355,25 @@ command(
         );
       }
 
-      /* IMAGE */
-      if (found.type === "image") {
+      if (
+        found.type ===
+        "image"
+      ) {
         await conn.sendMessage(
           message.from,
           {
             image: buffer,
             caption:
-              found.content?.caption ||
+              found.content
+                ?.caption ||
               "",
           },
           {
             quoted: {
-              key: message.key,
-              message: message.message,
+              key:
+                message.key,
+              message:
+                message.message,
             },
           }
         );
@@ -1095,20 +1381,25 @@ command(
         return;
       }
 
-      /* VIDEO */
-      if (found.type === "video") {
+      if (
+        found.type ===
+        "video"
+      ) {
         await conn.sendMessage(
           message.from,
           {
             video: buffer,
             caption:
-              found.content?.caption ||
+              found.content
+                ?.caption ||
               "",
           },
           {
             quoted: {
-              key: message.key,
-              message: message.message,
+              key:
+                message.key,
+              message:
+                message.message,
             },
           }
         );
@@ -1116,22 +1407,28 @@ command(
         return;
       }
 
-      /* AUDIO */
-      if (found.type === "audio") {
+      if (
+        found.type ===
+        "audio"
+      ) {
         await conn.sendMessage(
           message.from,
           {
             audio: buffer,
             mimetype:
-              found.content?.mimetype ||
+              found.content
+                ?.mimetype ||
               "audio/mp4",
             ptt:
-              found.content?.ptt === true,
+              found.content
+                ?.ptt === true,
           },
           {
             quoted: {
-              key: message.key,
-              message: message.message,
+              key:
+                message.key,
+              message:
+                message.message,
             },
           }
         );
@@ -1139,26 +1436,34 @@ command(
         return;
       }
 
-      /* DOCUMENT */
-      if (found.type === "document") {
+      if (
+        found.type ===
+        "document"
+      ) {
         await conn.sendMessage(
           message.from,
           {
-            document: buffer,
+            document:
+              buffer,
             mimetype:
-              found.content?.mimetype ||
+              found.content
+                ?.mimetype ||
               "application/octet-stream",
             fileName:
-              found.content?.fileName ||
+              found.content
+                ?.fileName ||
               "view-once-document",
             caption:
-              found.content?.caption ||
+              found.content
+                ?.caption ||
               "",
           },
           {
             quoted: {
-              key: message.key,
-              message: message.message,
+              key:
+                message.key,
+              message:
+                message.message,
             },
           }
         );
