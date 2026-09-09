@@ -14,8 +14,8 @@
  * .antidelete
  *   Show AntiDelete status
  *
- * Deleted messages are recovered ONLY in the
- * owner's own "You" chat.
+ * Deleted messages are recovered ONLY in
+ * the bot account's own "You" chat.
  */
 
 import fs from "fs";
@@ -23,6 +23,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { command } from "../plugins.js";
+
 import {
   reply,
   replyFail,
@@ -32,16 +33,11 @@ import {
 import { msgCache } from "../utils/cache.js";
 
 /* =========================================================
- * PATH / SETTINGS
- * ======================================================= */
+ * PATHS
+ * ========================================================= */
 
-const __filename = fileURLToPath(
-  import.meta.url
-);
-
-const __dirname = path.dirname(
-  __filename
-);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(
   __dirname,
@@ -55,7 +51,7 @@ const SETTINGS_FILE = path.join(
 
 /* =========================================================
  * SETTINGS
- * ======================================================= */
+ * ========================================================= */
 
 let settings = {
   enabled: false,
@@ -64,10 +60,9 @@ let settings = {
 function ensureDataDir() {
   try {
     if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(
-        DATA_DIR,
-        { recursive: true }
-      );
+      fs.mkdirSync(DATA_DIR, {
+        recursive: true,
+      });
     }
   } catch (error) {
     console.log(
@@ -133,8 +128,8 @@ function saveSettings() {
 loadSettings();
 
 /* =========================================================
- * PUBLIC SETTINGS FUNCTIONS
- * ======================================================= */
+ * EXPORTED SETTINGS
+ * ========================================================= */
 
 export function isAntiDeleteEnabled() {
   return settings.enabled === true;
@@ -150,10 +145,11 @@ export function setAntiDelete(enabled) {
 }
 
 /* =========================================================
- * PROCESSED DELETE CACHE
- * ======================================================= */
+ * DUPLICATE DELETE PROTECTION
+ * ========================================================= */
 
-const processedDeletes = new Map();
+const processedDeletes =
+  new Map();
 
 const DELETE_MEMORY_MS =
   60 * 1000;
@@ -179,7 +175,6 @@ function alreadyProcessed(
     Date.now()
   );
 
-  /* Cleanup old entries */
   for (
     const [
       key,
@@ -201,18 +196,17 @@ function alreadyProcessed(
 
 /* =========================================================
  * JID HELPERS
- * ======================================================= */
+ * ========================================================= */
 
 function cleanJid(jid) {
   if (!jid) {
     return null;
   }
 
-  return String(jid)
-    .replace(
-      /:[0-9]+(?=@)/,
-      ""
-    );
+  return String(jid).replace(
+    /:[0-9]+(?=@)/,
+    ""
+  );
 }
 
 function jidToNumber(jid) {
@@ -227,17 +221,17 @@ function jidToNumber(jid) {
     return "Unknown";
   }
 
-  return clean
-    .split("@")[0]
-    .replace(
-      /\D/g,
-      ""
-    ) || "Unknown";
+  return (
+    clean
+      .split("@")[0]
+      .replace(/\D/g, "") ||
+    "Unknown"
+  );
 }
 
 /* =========================================================
- * OWNER / SELF CHAT
- * ======================================================= */
+ * BOT SELF / OWNER CHAT
+ * ========================================================= */
 
 function getOwnerChatJid(conn) {
   const self =
@@ -252,7 +246,7 @@ function getOwnerChatJid(conn) {
 
 /* =========================================================
  * GROUP NAME
- * ======================================================= */
+ * ========================================================= */
 
 async function getGroupName(
   conn,
@@ -261,7 +255,9 @@ async function getGroupName(
   try {
     if (
       !jid ||
-      !jid.endsWith("@g.us")
+      !String(jid).endsWith(
+        "@g.us"
+      )
     ) {
       return null;
     }
@@ -281,19 +277,9 @@ async function getGroupName(
 }
 
 /* =========================================================
- * DELETER / ACTOR
- * ======================================================= */
+ * DELETER DETECTION
+ * ========================================================= */
 
-/**
- * For normalized Baileys revoke events:
- *
- * update.key
- *   = deleted/original message key
- *
- * update.update.key
- *   = key of the revoke protocol message
- *   = person who performed delete
- */
 function getDeleter(
   update,
   targetKey
@@ -302,12 +288,13 @@ function getDeleter(
     update?.update?.key;
 
   const protocol =
-    update?.update?.message
+    update?.update
+      ?.message
       ?.protocolMessage;
 
-  /* ---------------------------------------------
-   * Normalized revoke
-   * ------------------------------------------- */
+  /* -------------------------------------------------------
+   * Normalized Baileys revoke event
+   * ------------------------------------------------------- */
 
   if (innerKey) {
     const participant =
@@ -329,9 +316,9 @@ function getDeleter(
     }
   }
 
-  /* ---------------------------------------------
-   * Raw protocol message
-   * ------------------------------------------- */
+  /* -------------------------------------------------------
+   * Raw protocol revoke event
+   * ------------------------------------------------------- */
 
   if (protocol?.key) {
     const participant =
@@ -348,14 +335,14 @@ function getDeleter(
       update?.key?.fromMe === true
     ) {
       return cleanJid(
-        update?.key?.remoteJid
+        update.key.remoteJid
       );
     }
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * Fallback
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     update?.key?.fromMe === true
@@ -370,11 +357,9 @@ function getDeleter(
 
 /* =========================================================
  * MENTION
- * ======================================================= */
+ * ========================================================= */
 
-function makeMention(
-  jid
-) {
+function makeMention(jid) {
   if (!jid) {
     return {
       text: "Unknown",
@@ -383,14 +368,16 @@ function makeMention(
   }
 
   return {
-    text: `@${jidToNumber(jid)}`,
+    text:
+      `@${jidToNumber(jid)}`,
+
     mentions: [jid],
   };
 }
 
 /* =========================================================
- * MESSAGE DESCRIPTION
- * ======================================================= */
+ * ORIGINAL MESSAGE DESCRIPTION
+ * ========================================================= */
 
 function getOriginalDescription(
   message
@@ -407,8 +394,6 @@ function getOriginalDescription(
     return "Unknown message";
   }
 
-  /* TEXT */
-
   if (
     content.conversation
   ) {
@@ -420,11 +405,11 @@ function getOriginalDescription(
       ?.text
   ) {
     return (
-      content.extendedTextMessage.text
+      content
+        .extendedTextMessage
+        .text
     );
   }
-
-  /* IMAGE */
 
   if (
     content.imageMessage
@@ -436,8 +421,6 @@ function getOriginalDescription(
     );
   }
 
-  /* VIDEO */
-
   if (
     content.videoMessage
   ) {
@@ -448,15 +431,11 @@ function getOriginalDescription(
     );
   }
 
-  /* AUDIO */
-
   if (
     content.audioMessage
   ) {
     return "Audio";
   }
-
-  /* DOCUMENT */
 
   if (
     content.documentMessage
@@ -468,15 +447,11 @@ function getOriginalDescription(
     );
   }
 
-  /* STICKER */
-
   if (
     content.stickerMessage
   ) {
     return "Sticker";
   }
-
-  /* CONTACT */
 
   if (
     content.contactMessage
@@ -484,15 +459,11 @@ function getOriginalDescription(
     return "Contact";
   }
 
-  /* LOCATION */
-
   if (
     content.locationMessage
   ) {
     return "Location";
   }
-
-  /* POLL */
 
   if (
     content.pollCreationMessage
@@ -504,56 +475,8 @@ function getOriginalDescription(
 }
 
 /* =========================================================
- * MEDIA TYPE
- * ======================================================= */
-
-function getMessageType(
-  message
-) {
-  const content =
-    message?.message ||
-    message;
-
-  if (!content) {
-    return null;
-  }
-
-  if (
-    content.imageMessage
-  ) {
-    return "image";
-  }
-
-  if (
-    content.videoMessage
-  ) {
-    return "video";
-  }
-
-  if (
-    content.audioMessage
-  ) {
-    return "audio";
-  }
-
-  if (
-    content.documentMessage
-  ) {
-    return "document";
-  }
-
-  if (
-    content.stickerMessage
-  ) {
-    return "sticker";
-  }
-
-  return null;
-}
-
-/* =========================================================
- * SEND ORIGINAL MESSAGE
- * ======================================================= */
+ * RESEND ORIGINAL MESSAGE
+ * ========================================================= */
 
 async function resendRawMessage(
   conn,
@@ -575,9 +498,9 @@ async function resendRawMessage(
     return false;
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * TEXT
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.conversation
@@ -593,6 +516,10 @@ async function resendRawMessage(
     return true;
   }
 
+  /* -------------------------------------------------------
+   * EXTENDED TEXT
+   * ------------------------------------------------------- */
+
   if (
     content.extendedTextMessage
       ?.text
@@ -601,7 +528,8 @@ async function resendRawMessage(
       jid,
       {
         text:
-          content.extendedTextMessage
+          content
+            .extendedTextMessage
             .text,
       }
     );
@@ -609,9 +537,9 @@ async function resendRawMessage(
     return true;
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * IMAGE
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.imageMessage
@@ -624,35 +552,37 @@ async function resendRawMessage(
           {}
         );
 
-      if (buffer) {
-        await conn.sendMessage(
-          jid,
-          {
-            image: buffer,
-
-            caption:
-              content
-                .imageMessage
-                .caption ||
-              "",
-          }
-        );
-
-        return true;
+      if (!buffer) {
+        return false;
       }
+
+      await conn.sendMessage(
+        jid,
+        {
+          image: buffer,
+          caption:
+            content
+              .imageMessage
+              .caption ||
+            "",
+        }
+      );
+
+      return true;
     } catch (error) {
       console.log(
         "⚠️ AntiDelete image resend error:",
-        error?.message || error
+        error?.message ||
+          error
       );
-    }
 
-    return false;
+      return false;
+    }
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * VIDEO
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.videoMessage
@@ -665,41 +595,44 @@ async function resendRawMessage(
           {}
         );
 
-      if (buffer) {
-        await conn.sendMessage(
-          jid,
-          {
-            video: buffer,
-
-            caption:
-              content
-                .videoMessage
-                .caption ||
-              "",
-
-            gifPlayback:
-              content
-                .videoMessage
-                .gifPlayback ||
-              false,
-          }
-        );
-
-        return true;
+      if (!buffer) {
+        return false;
       }
+
+      await conn.sendMessage(
+        jid,
+        {
+          video: buffer,
+
+          caption:
+            content
+              .videoMessage
+              .caption ||
+            "",
+
+          gifPlayback:
+            content
+              .videoMessage
+              .gifPlayback ||
+            false,
+        }
+      );
+
+      return true;
     } catch (error) {
       console.log(
         "⚠️ AntiDelete video resend error:",
-        error?.message || error
+        error?.message ||
+          error
       );
-    }
 
-    return false;
+      return false;
+    }
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * AUDIO
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.audioMessage
@@ -712,41 +645,44 @@ async function resendRawMessage(
           {}
         );
 
-      if (buffer) {
-        await conn.sendMessage(
-          jid,
-          {
-            audio: buffer,
-
-            mimetype:
-              content
-                .audioMessage
-                .mimetype ||
-              "audio/mpeg",
-
-            ptt:
-              content
-                .audioMessage
-                .ptt ||
-              false,
-          }
-        );
-
-        return true;
+      if (!buffer) {
+        return false;
       }
+
+      await conn.sendMessage(
+        jid,
+        {
+          audio: buffer,
+
+          mimetype:
+            content
+              .audioMessage
+              .mimetype ||
+            "audio/mpeg",
+
+          ptt:
+            content
+              .audioMessage
+              .ptt ||
+            false,
+        }
+      );
+
+      return true;
     } catch (error) {
       console.log(
         "⚠️ AntiDelete audio resend error:",
-        error?.message || error
+        error?.message ||
+          error
       );
-    }
 
-    return false;
+      return false;
+    }
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * DOCUMENT
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.documentMessage
@@ -759,41 +695,44 @@ async function resendRawMessage(
           {}
         );
 
-      if (buffer) {
-        await conn.sendMessage(
-          jid,
-          {
-            document: buffer,
-
-            mimetype:
-              content
-                .documentMessage
-                .mimetype ||
-              "application/octet-stream",
-
-            fileName:
-              content
-                .documentMessage
-                .fileName ||
-              "document",
-          }
-        );
-
-        return true;
+      if (!buffer) {
+        return false;
       }
+
+      await conn.sendMessage(
+        jid,
+        {
+          document: buffer,
+
+          mimetype:
+            content
+              .documentMessage
+              .mimetype ||
+            "application/octet-stream",
+
+          fileName:
+            content
+              .documentMessage
+              .fileName ||
+            "document",
+        }
+      );
+
+      return true;
     } catch (error) {
       console.log(
         "⚠️ AntiDelete document resend error:",
-        error?.message || error
+        error?.message ||
+          error
       );
-    }
 
-    return false;
+      return false;
+    }
   }
 
-  /* ---------------------------------------------
+  /* -------------------------------------------------------
    * STICKER
-   * ------------------------------------------- */
+   * ------------------------------------------------------- */
 
   if (
     content.stickerMessage
@@ -806,24 +745,27 @@ async function resendRawMessage(
           {}
         );
 
-      if (buffer) {
-        await conn.sendMessage(
-          jid,
-          {
-            sticker: buffer,
-          }
-        );
-
-        return true;
+      if (!buffer) {
+        return false;
       }
+
+      await conn.sendMessage(
+        jid,
+        {
+          sticker: buffer,
+        }
+      );
+
+      return true;
     } catch (error) {
       console.log(
         "⚠️ AntiDelete sticker resend error:",
-        error?.message || error
+        error?.message ||
+          error
       );
-    }
 
-    return false;
+      return false;
+    }
   }
 
   return false;
@@ -831,7 +773,7 @@ async function resendRawMessage(
 
 /* =========================================================
  * EXTRACT DELETE INFORMATION
- * ======================================================= */
+ * ========================================================= */
 
 function extractDeleteInfo(
   update
@@ -843,17 +785,15 @@ function extractDeleteInfo(
   const inner =
     update.update || {};
 
-  /* =====================================================
-   * CASE 1:
-   * Baileys normalized REVOKE event
-   *
-   * IMPORTANT:
-   * Outer update.key contains the target/deleted
-   * message ID.
-   * =================================================== */
-
   const stub =
     inner.messageStubType;
+
+  /* -------------------------------------------------------
+   * Normalized REVOKE
+   *
+   * update.key = deleted message
+   * update.update.key = revoke actor
+   * ------------------------------------------------------- */
 
   if (
     stub === "REVOKE" ||
@@ -870,18 +810,18 @@ function extractDeleteInfo(
     ) {
       return {
         targetKey,
+
         actorKey:
-          inner.key ||
-          null,
+          inner.key || null,
+
         type: "REVOKE",
       };
     }
   }
 
-  /* =====================================================
-   * CASE 2:
+  /* -------------------------------------------------------
    * Raw protocolMessage
-   * =================================================== */
+   * ------------------------------------------------------- */
 
   const protocol =
     inner.message
@@ -892,8 +832,9 @@ function extractDeleteInfo(
       protocol.type;
 
     const typeString =
-      String(type || "")
-        .toUpperCase();
+      String(
+        type || ""
+      ).toUpperCase();
 
     const isDelete =
       typeString ===
@@ -911,8 +852,7 @@ function extractDeleteInfo(
           protocol.key,
 
         actorKey:
-          update.key ||
-          null,
+          update.key || null,
 
         type: "REVOKE",
       };
@@ -924,7 +864,7 @@ function extractDeleteInfo(
 
 /* =========================================================
  * SEND ANTIDELETE REPORT
- * ======================================================= */
+ * ========================================================= */
 
 async function sendAntiDeleteReport(
   conn,
@@ -937,7 +877,7 @@ async function sendAntiDeleteReport(
 
   if (!ownerJid) {
     console.log(
-      "⚠️ AntiDelete: owner/self JID not available"
+      "⚠️ AntiDelete: self JID not available"
     );
 
     return false;
@@ -955,11 +895,6 @@ async function sendAntiDeleteReport(
   const isGroup =
     remoteJid.endsWith(
       "@g.us"
-    );
-
-  const number =
-    jidToNumber(
-      deleter
     );
 
   const mention =
@@ -982,6 +917,10 @@ async function sendAntiDeleteReport(
 
   let report = "";
 
+  /* -------------------------------------------------------
+   * GROUP
+   * ------------------------------------------------------- */
+
   if (isGroup) {
     report =
 `🗑️ AntiDelete
@@ -989,7 +928,19 @@ async function sendAntiDeleteReport(
 👤 User: ${mention.text}
 ❌ Deleted a message
 💬 Original message: ${originalDescription}`;
-  } else {
+  }
+
+  /* -------------------------------------------------------
+   * PRIVATE
+   * ------------------------------------------------------- */
+
+  else {
+    const number =
+      jidToNumber(
+        deleter ||
+          remoteJid
+      );
+
     report =
 `🗑️ AntiDelete
 👤 User: @${number}
@@ -997,11 +948,16 @@ async function sendAntiDeleteReport(
 💬 Original message: ${originalDescription}`;
   }
 
+  /* -------------------------------------------------------
+   * REPORT
+   * ------------------------------------------------------- */
+
   try {
     await conn.sendMessage(
       ownerJid,
       {
         text: report,
+
         mentions:
           deleter
             ? [deleter]
@@ -1011,15 +967,17 @@ async function sendAntiDeleteReport(
   } catch (error) {
     console.log(
       "⚠️ AntiDelete report error:",
-      error?.message || error
+      error?.stack ||
+        error?.message ||
+        error
     );
 
     return false;
   }
 
-  /* ---------------------------------------------
-   * SEND ORIGINAL MESSAGE / MEDIA
-   * ------------------------------------------- */
+  /* -------------------------------------------------------
+   * ORIGINAL MESSAGE / MEDIA
+   * ------------------------------------------------------- */
 
   try {
     await resendRawMessage(
@@ -1030,7 +988,9 @@ async function sendAntiDeleteReport(
   } catch (error) {
     console.log(
       "⚠️ AntiDelete original resend error:",
-      error?.message || error
+      error?.stack ||
+        error?.message ||
+        error
     );
   }
 
@@ -1039,7 +999,7 @@ async function sendAntiDeleteReport(
 
 /* =========================================================
  * HANDLE DELETED MESSAGE
- * ======================================================= */
+ * ========================================================= */
 
 export async function handleDeletedMessage(
   conn,
@@ -1075,8 +1035,10 @@ export async function handleDeletedMessage(
     const cacheKey =
       `${targetKey.remoteJid}:${targetKey.id}`;
 
-    /* Prevent duplicate recovery when both
-       messages.update and messages.delete fire */
+    /* -------------------------------------------------------
+     * DUPLICATE PROTECTION
+     * ------------------------------------------------------- */
+
     if (
       alreadyProcessed(
         cacheKey
@@ -1085,9 +1047,9 @@ export async function handleDeletedMessage(
       return false;
     }
 
-    /* ---------------------------------------------
+    /* -------------------------------------------------------
      * GET ORIGINAL MESSAGE
-     * ------------------------------------------- */
+     * ------------------------------------------------------- */
 
     const original =
       msgCache.get(
@@ -1103,33 +1065,34 @@ export async function handleDeletedMessage(
       return false;
     }
 
-    /* ---------------------------------------------
-     * FIND DELETER
-     * ------------------------------------------- */
+    /* -------------------------------------------------------
+     * DETECT DELETER
+     * ------------------------------------------------------- */
 
-    let deleter =
-      null;
+    let deleter = null;
 
     if (
       info.actorKey
     ) {
       deleter =
-        info.actorKey.participant ||
-        info.actorKey.participantAlt ||
+        info.actorKey
+          .participant ||
+        info.actorKey
+          .participantAlt ||
         null;
 
       if (
         !deleter &&
-        info.actorKey.fromMe
+        info.actorKey
+          .fromMe
       ) {
         deleter =
           cleanJid(
-            info.actorKey.remoteJid
+            info.actorKey
+              .remoteJid
           );
       }
     }
-
-    /* Raw protocol fallback */
 
     if (!deleter) {
       deleter =
@@ -1139,13 +1102,17 @@ export async function handleDeletedMessage(
         );
     }
 
-    /* For private chat, deleted sender is
-       normally the remote user */
+    /* -------------------------------------------------------
+     * PRIVATE FALLBACK
+     * ------------------------------------------------------- */
+
     if (
       !deleter &&
       !String(
         targetKey.remoteJid
-      ).endsWith("@g.us")
+      ).endsWith(
+        "@g.us"
+      )
     ) {
       deleter =
         cleanJid(
@@ -1158,17 +1125,17 @@ export async function handleDeletedMessage(
       {
         chat:
           targetKey.remoteJid,
+
         messageId:
           targetKey.id,
+
         deleter:
-          deleter || "unknown",
+          deleter ||
+          "unknown",
+
         cacheKey,
       }
     );
-
-    /* ---------------------------------------------
-     * SEND TO OWNER ONLY
-     * ------------------------------------------- */
 
     return await sendAntiDeleteReport(
       conn,
@@ -1189,19 +1156,25 @@ export async function handleDeletedMessage(
 }
 
 /* =========================================================
- * VIEW ONCE
- * ======================================================= */
+ * .VV COMMAND
+ * ========================================================= */
 
 command(
   {
     pattern: "vv",
-    desc: "Open View Once message",
+
+    desc:
+      "Open View Once message",
+
     type: "misc",
   },
-  async (
-    conn,
-    message
-  ) => {
+
+  /* IMPORTANT:
+   * Handler calls command as:
+   * command.function(message, conn)
+   */
+
+  async (message, conn) => {
     try {
       const quoted =
         message?.quoted;
@@ -1229,9 +1202,9 @@ command(
       let viewOnceMessage =
         original;
 
-      /* ---------------------------------------------
-       * Unwrap common Baileys ViewOnce containers
-       * ------------------------------------------- */
+      /* ---------------------------------------------------
+       * ViewOnce V2
+       * --------------------------------------------------- */
 
       if (
         viewOnceMessage
@@ -1244,6 +1217,10 @@ command(
             .message;
       }
 
+      /* ---------------------------------------------------
+       * ViewOnce V2 Extension
+       * --------------------------------------------------- */
+
       if (
         viewOnceMessage
           .viewOnceMessageV2Extension
@@ -1254,6 +1231,10 @@ command(
             .viewOnceMessageV2Extension
             .message;
       }
+
+      /* ---------------------------------------------------
+       * Old ViewOnce
+       * --------------------------------------------------- */
 
       if (
         viewOnceMessage
@@ -1266,6 +1247,10 @@ command(
             .message;
       }
 
+      /* ---------------------------------------------------
+       * Fake message for media download
+       * --------------------------------------------------- */
+
       const fakeMessage = {
         key:
           quoted.key ||
@@ -1275,15 +1260,16 @@ command(
           viewOnceMessage,
       };
 
-      const ownerJid =
+      const targetJid =
         message.from;
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * IMAGE
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
-        viewOnceMessage.imageMessage
+        viewOnceMessage
+          .imageMessage
       ) {
         const media =
           await conn.downloadMediaMessage(
@@ -1301,7 +1287,7 @@ command(
         }
 
         await conn.sendMessage(
-          ownerJid,
+          targetJid,
           {
             image: media,
 
@@ -1317,6 +1303,7 @@ command(
                 ? {
                     key:
                       message.key,
+
                     message:
                       message.message,
                   }
@@ -1327,12 +1314,13 @@ command(
         return;
       }
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * VIDEO
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
-        viewOnceMessage.videoMessage
+        viewOnceMessage
+          .videoMessage
       ) {
         const media =
           await conn.downloadMediaMessage(
@@ -1350,7 +1338,7 @@ command(
         }
 
         await conn.sendMessage(
-          ownerJid,
+          targetJid,
           {
             video: media,
 
@@ -1359,6 +1347,12 @@ command(
                 .videoMessage
                 .caption ||
               "",
+
+            gifPlayback:
+              viewOnceMessage
+                .videoMessage
+                .gifPlayback ||
+              false,
           },
           {
             quoted:
@@ -1366,6 +1360,7 @@ command(
                 ? {
                     key:
                       message.key,
+
                     message:
                       message.message,
                   }
@@ -1376,19 +1371,25 @@ command(
         return;
       }
 
-      /* ---------------------------------------------
-       * TEXT / EXTENDED TEXT
-       * ------------------------------------------- */
+      /* ---------------------------------------------------
+       * TEXT
+       * --------------------------------------------------- */
 
       if (
-        viewOnceMessage.conversation
+        viewOnceMessage
+          .conversation
       ) {
         return replyOk(
           conn,
           message,
-          viewOnceMessage.conversation
+          viewOnceMessage
+            .conversation
         );
       }
+
+      /* ---------------------------------------------------
+       * EXTENDED TEXT
+       * --------------------------------------------------- */
 
       if (
         viewOnceMessage
@@ -1404,12 +1405,13 @@ command(
         );
       }
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * AUDIO
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
-        viewOnceMessage.audioMessage
+        viewOnceMessage
+          .audioMessage
       ) {
         const media =
           await conn.downloadMediaMessage(
@@ -1427,7 +1429,7 @@ command(
         }
 
         await conn.sendMessage(
-          ownerJid,
+          targetJid,
           {
             audio: media,
 
@@ -1449,6 +1451,7 @@ command(
                 ? {
                     key:
                       message.key,
+
                     message:
                       message.message,
                   }
@@ -1458,6 +1461,10 @@ command(
 
         return;
       }
+
+      /* ---------------------------------------------------
+       * UNSUPPORTED
+       * --------------------------------------------------- */
 
       return replyFail(
         conn,
@@ -1482,24 +1489,33 @@ command(
 );
 
 /* =========================================================
- * ANTIDELETE COMMAND
- * ======================================================= */
+ * .ANTIDELETE COMMAND
+ * ========================================================= */
 
 command(
   {
-    pattern: "antidelete",
-    desc: "Enable, disable or check AntiDelete",
-    type: "misc",
+    pattern:
+      "antidelete",
+
+    desc:
+      "Enable, disable or check AntiDelete",
+
+    type:
+      "misc",
   },
-  async (
-    conn,
-    message
-  ) => {
+
+  /* IMPORTANT:
+   * Handler calls:
+   * command.function(message, conn)
+   */
+
+  async (message, conn) => {
     try {
       const body =
         message?.body ||
         message?.text ||
-        message?.message?.conversation ||
+        message?.message
+          ?.conversation ||
         "";
 
       const args =
@@ -1514,15 +1530,17 @@ command(
           "status"
         ).toLowerCase();
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * ON
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
         action === "on" ||
         action === "enable"
       ) {
-        setAntiDelete(true);
+        setAntiDelete(
+          true
+        );
 
         return replyOk(
           conn,
@@ -1531,15 +1549,17 @@ command(
         );
       }
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * OFF
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
         action === "off" ||
         action === "disable"
       ) {
-        setAntiDelete(false);
+        setAntiDelete(
+          false
+        );
 
         return replyOk(
           conn,
@@ -1548,9 +1568,9 @@ command(
         );
       }
 
-      /* ---------------------------------------------
+      /* ---------------------------------------------------
        * STATUS
-       * ------------------------------------------- */
+       * --------------------------------------------------- */
 
       if (
         action === "status" ||
@@ -1566,6 +1586,10 @@ command(
           } globally.`
         );
       }
+
+      /* ---------------------------------------------------
+       * INVALID
+       * --------------------------------------------------- */
 
       return replyFail(
         conn,
