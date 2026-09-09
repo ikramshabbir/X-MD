@@ -10,8 +10,6 @@
  * - Independent reconnect
  * - Manual disconnect
  * - Detailed message debugging
- * - Anti-delete message cache
- * - Automatic AntiDelete recovery
  */
 
 import makeWASocket, {
@@ -45,19 +43,6 @@ import {
 import {
   processGroupGuards,
 } from "../messages/groupGuards.js";
-
-/* =========================================================
- * ANTI-DELETE CACHE
- * ======================================================= */
-
-import {
-  msgCache,
-  makeMessageCacheKey,
-} from "../utils/cache.js";
-
-import {
-  handleDeletedMessage,
-} from "../plugins/vv-antidelete.js";
 
 /* =========================================================
  * CONSTANTS
@@ -134,76 +119,6 @@ async function getBaileysVersion() {
   }
 
   return undefined;
-}
-
-/* =========================================================
- * CACHE MESSAGE FOR ANTI-DELETE
- * ======================================================= */
-
-/**
- * Store complete Baileys WAMessage.
- *
- * IMPORTANT:
- * This happens BEFORE serialize/handler.
- */
-function cacheIncomingMessage(
-  rawMessage,
-  sessionId
-) {
-  try {
-    const remoteJid =
-      rawMessage?.key?.remoteJid;
-
-    const messageId =
-      rawMessage?.key?.id;
-
-    if (
-      !remoteJid ||
-      !messageId ||
-      !rawMessage?.message
-    ) {
-      return;
-    }
-
-    /* Ignore protocol messages */
-    if (
-      rawMessage?.message?.protocolMessage
-    ) {
-      return;
-    }
-
-    /*
-     * SESSION-AWARE CACHE KEY
-     *
-     * This prevents messages from different
-     * WhatsApp sessions from mixing together.
-     */
-    const cacheKey =
-      makeMessageCacheKey(
-        sessionId,
-        remoteJid,
-        messageId
-      );
-
-    if (!cacheKey) {
-      return;
-    }
-
-    msgCache.set(
-      cacheKey,
-      rawMessage
-    );
-
-    console.log(
-      `💾 MESSAGE CACHED [${sessionId}]:`,
-      cacheKey
-    );
-  } catch (error) {
-    console.log(
-      `⚠️ Message cache error [${sessionId}]:`,
-      error?.message || error
-    );
-  }
 }
 
 /* =========================================================
@@ -733,17 +648,6 @@ async function createConnection(
               }
 
               /* -----------------------------------------
-               * ANTI-DELETE CACHE
-               *
-               * MUST happen BEFORE serialize.
-               * --------------------------------------- */
-
-              cacheIncomingMessage(
-                rawMessage,
-                sessionId
-              );
-
-              /* -----------------------------------------
                * RAW MESSAGE DEBUG
                * --------------------------------------- */
 
@@ -837,136 +741,6 @@ async function createConnection(
           } catch (error) {
             console.log(
               `⚠️ messages.upsert error [${sessionId}]:`,
-              error?.stack ||
-                error?.message ||
-                error
-            );
-          }
-        }
-      );
-
-      /* =================================================
-       * ANTI-DELETE
-       *
-       * Main revoke event.
-       * ================================================= */
-
-      conn.ev.on(
-        "messages.update",
-        async (updates) => {
-          try {
-            if (
-              !Array.isArray(
-                updates
-              )
-            ) {
-              return;
-            }
-
-            for (
-              const update
-              of updates
-            ) {
-              try {
-                await handleDeletedMessage(
-                  conn,
-                  update,
-                  sessionId
-                );
-              } catch (error) {
-                console.log(
-                  `⚠️ AntiDelete update error [${sessionId}]:`,
-                  error?.stack ||
-                    error?.message ||
-                    error
-                );
-              }
-            }
-          } catch (error) {
-            console.log(
-              `⚠️ messages.update error [${sessionId}]:`,
-              error?.stack ||
-                error?.message ||
-                error
-            );
-          }
-        }
-      );
-
-      /* =================================================
-       * ANTI-DELETE FALLBACK
-       *
-       * Some Baileys events can arrive through
-       * messages.delete instead of messages.update.
-       *
-       * IMPORTANT:
-       * messages.delete does NOT reliably provide the
-       * person who deleted the message, so we do NOT
-       * incorrectly use the deleted message key as
-       * the actor key.
-       * ================================================= */
-
-      conn.ev.on(
-        "messages.delete",
-        async (event) => {
-          try {
-            const keys =
-              Array.isArray(
-                event?.keys
-              )
-                ? event.keys
-                : [];
-
-            if (
-              !keys.length
-            ) {
-              return;
-            }
-
-            for (
-              const key
-              of keys
-            ) {
-              if (
-                !key?.remoteJid ||
-                !key?.id
-              ) {
-                continue;
-              }
-
-              try {
-                await handleDeletedMessage(
-                  conn,
-                  {
-                    key,
-
-                    update: {
-                      message: null,
-
-                      messageStubType:
-                        "REVOKE",
-
-                      /*
-                       * No actor information is
-                       * reliably available here.
-                       */
-                      key: null,
-                    },
-                  },
-                  sessionId
-                );
-              } catch (error) {
-                console.log(
-                  `⚠️ AntiDelete delete error [${sessionId}]:`,
-                  error?.stack ||
-                    error?.message ||
-                    error
-                );
-              }
-            }
-          } catch (error) {
-            console.log(
-              `⚠️ messages.delete error [${sessionId}]:`,
               error?.stack ||
                 error?.message ||
                 error
