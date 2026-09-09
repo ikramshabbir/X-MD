@@ -1,31 +1,47 @@
 import { normalizeMessageContent } from "baileys";
 
+/**
+ * Message type -> simplified type
+ */
 const MIME_TYPE_MAP = {
     conversation: "text",
     extendedTextMessage: "text",
+
     imageMessage: "image",
     videoMessage: "video",
     stickerMessage: "sticker",
+
     documentMessage: "document",
-    audioMessage: "audio",
     documentWithCaptionMessage: "document",
-    viewOnceMessage: "image",
-    viewOnceMessageV2: "image",
-    viewOnceMessageV2Extension: "image",
+
+    audioMessage: "audio",
+
+    viewOnceMessage: "message",
+    viewOnceMessageV2: "message",
+    viewOnceMessageV2Extension: "message",
+
     templateMessage: "text",
+
     buttonsResponseMessage: "text",
     listResponseMessage: "text",
     templateButtonReplyMessage: "text",
-    interactiveResponseMessage: "text",
+
     locationMessage: "location",
     liveLocationMessage: "location",
+
     contactMessage: "contact",
     contactsArrayMessage: "contact",
+
     reactionMessage: "reaction",
+
     pollCreationMessage: "poll",
     pollUpdateMessage: "poll",
 };
 
+
+/**
+ * Message wrappers used by WhatsApp.
+ */
 const WRAPPER_KEYS = [
     "ephemeralMessage",
     "viewOnceMessage",
@@ -35,6 +51,10 @@ const WRAPPER_KEYS = [
     "templateMessage",
 ];
 
+
+/**
+ * Detect message type.
+ */
 function getMessageMimeType(message) {
     if (!message || typeof message !== "object") {
         return {
@@ -58,15 +78,23 @@ function getMessageMimeType(message) {
     };
 }
 
+
 /**
- * Unwrap Baileys message wrappers.
- * First uses Baileys' own normalizer, then handles remaining wrappers.
+ * Unwrap WhatsApp message.
+ *
+ * Baileys already provides normalizeMessageContent(),
+ * so we use it first and then handle remaining wrappers.
  */
-function unwrapMessage(msg) {
-    if (!msg) return null;
+function unwrapMessage(message) {
+    if (!message) {
+        return null;
+    }
 
-    let current = msg;
+    let current = message;
 
+    /**
+     * Baileys normalizer.
+     */
     try {
         const normalized = normalizeMessageContent(current);
 
@@ -80,26 +108,37 @@ function unwrapMessage(msg) {
         );
     }
 
+    /**
+     * Additional wrapper handling.
+     */
     for (let i = 0; i < 6 && current; i++) {
-        let unwrapped = false;
+        let foundWrapper = false;
 
-        for (const key of WRAPPER_KEYS) {
-            if (current?.[key]?.message) {
-                current = current[key].message;
-                unwrapped = true;
+        for (const wrapper of WRAPPER_KEYS) {
+            if (current?.[wrapper]?.message) {
+                current = current[wrapper].message;
+                foundWrapper = true;
                 break;
             }
         }
 
-        if (!unwrapped) break;
+        if (!foundWrapper) {
+            break;
+        }
     }
 
     return current;
 }
 
-function extractTextFromContent(content, messageTypeKey) {
-    if (messageTypeKey === "conversation") {
-        return typeof content === "string" ? content : "";
+
+/**
+ * Extract text from message content.
+ */
+function getBody(content, typeKey) {
+    if (typeKey === "conversation") {
+        return typeof content === "string"
+            ? content
+            : "";
     }
 
     if (!content || typeof content !== "object") {
@@ -116,118 +155,75 @@ function extractTextFromContent(content, messageTypeKey) {
     );
 }
 
+
+/**
+ * Extract quoted message.
+ */
 function extractQuotedMessage(contextInfo) {
     if (!contextInfo?.quotedMessage) {
         return null;
     }
 
-    const unwrapped = unwrapMessage(contextInfo.quotedMessage);
+    const quotedRaw = unwrapMessage(
+        contextInfo.quotedMessage
+    );
 
-    if (!unwrapped) {
+    if (!quotedRaw) {
         return null;
     }
 
     const {
-        key: quotedKey,
-        mime,
-    } = getMessageMimeType(unwrapped);
+        key: quotedTypeKey,
+        mime: quotedMime,
+    } = getMessageMimeType(quotedRaw);
 
-    if (mime === "unknown") {
+    if (quotedMime === "unknown") {
         return null;
     }
 
-    let content = unwrapped[quotedKey];
-
-    if (content?.message) {
-        const nested = unwrapMessage(content.message);
-
-        if (nested) {
-            const {
-                key: nestedKey,
-                mime: nestedMime,
-            } = getMessageMimeType(nested);
-
-            if (nestedMime !== "unknown") {
-                content = nested[nestedKey];
-
-                return normalizeQuoted(
-                    content,
-                    nestedMime,
-                    nestedKey,
-                    nested
-                );
-            }
-        }
-    }
-
-    return normalizeQuoted(
-        content,
-        mime,
-        quotedKey,
-        unwrapped
-    );
-}
-
-function normalizeQuoted(
-    content,
-    mime,
-    messageTypeKey,
-    raw
-) {
-    if (mime === "text") {
-        const text =
-            typeof content === "string"
-                ? content
-                : extractTextFromContent(
-                      content,
-                      messageTypeKey
-                  );
-
-        return {
-            type: "text",
-            text,
-            caption: content?.caption,
-            messageTypeKey,
-            raw,
-            mimetype: content?.mimetype,
-        };
-    }
+    const content = quotedRaw[quotedTypeKey];
 
     return {
-        ...(typeof content === "object" && content
-            ? content
-            : {}),
+        type: quotedMime,
 
-        type: mime,
+        messageTypeKey: quotedTypeKey,
 
-        text:
-            typeof content === "object"
-                ? content?.caption ||
-                  content?.text ||
-                  ""
-                : "",
+        text: getBody(
+            content,
+            quotedTypeKey
+        ),
 
-        caption: content?.caption,
-        mimetype: content?.mimetype,
-        messageTypeKey,
-        raw,
+        caption:
+            content?.caption || "",
+
+        mimetype:
+            content?.mimetype || "",
+
+        raw: quotedRaw,
     };
 }
 
+
 /**
- * Determines sender information with LID / PN support.
+ * Get sender information.
+ *
+ * Supports:
+ * - normal WhatsApp JID
+ * - LID
+ * - groups
+ * - fromMe messages
  */
 function getSenderInfo(key, isGroup, conn) {
     const isBotMessage =
-        key.fromMe === true &&
-        !key.participant;
+        key?.fromMe === true &&
+        !key?.participant;
 
     if (isGroup) {
         const participant =
-            key.participant || null;
+            key?.participant || null;
 
         const participantAlt =
-            key.participantAlt || null;
+            key?.participantAlt || null;
 
         const sender = isBotMessage
             ? conn?.user?.id || null
@@ -244,14 +240,15 @@ function getSenderInfo(key, isGroup, conn) {
     }
 
     const participant =
-        key.remoteJid || null;
+        key?.remoteJid || null;
 
     const participantAlt =
-        key.remoteJidAlt || null;
+        key?.remoteJidAlt || null;
 
-    const sender = key.fromMe
+    const sender = key?.fromMe
         ? conn?.user?.id || participant
-        : participantAlt || participant;
+        : participantAlt ||
+          participant;
 
     return {
         participant,
@@ -261,10 +258,56 @@ function getSenderInfo(key, isGroup, conn) {
     };
 }
 
+
 /**
- * Serialize Baileys 7.x message.
+ * Serialize Baileys message.
+ *
+ * IMPORTANT:
+ * connection.js calls:
+ *
+ *     serialize(conn, rawMessage)
+ *
+ * Therefore the argument order here MUST be:
+ *
+ *     serialize(conn, message)
  */
-async function serialize(message, conn) {
+async function serialize(conn, message) {
+    /**
+     * Validate connection.
+     */
+    if (!conn) {
+        console.log(
+            "⚠️ Serialize: connection missing"
+        );
+
+        return null;
+    }
+
+    /**
+     * Validate raw WhatsApp message.
+     */
+    if (!message) {
+        console.log(
+            "⚠️ Serialize: message missing"
+        );
+
+        return null;
+    }
+
+    /**
+     * Validate message key.
+     */
+    if (!message?.key) {
+        console.log(
+            "⚠️ Serialize: message key missing"
+        );
+
+        return null;
+    }
+
+    /**
+     * Validate remote JID.
+     */
     if (!message?.key?.remoteJid) {
         console.log(
             "⚠️ Serialize: missing remoteJid"
@@ -273,6 +316,18 @@ async function serialize(message, conn) {
         return null;
     }
 
+    /**
+     * Protocol messages are internal WhatsApp events.
+     *
+     * Do not send them to command handler.
+     */
+    if (message?.message?.protocolMessage) {
+        return null;
+    }
+
+    /**
+     * Message content must exist.
+     */
     if (!message?.message) {
         console.log(
             "⚠️ Serialize: missing message content"
@@ -286,6 +341,9 @@ async function serialize(message, conn) {
         pushName,
     } = message;
 
+    /**
+     * Normalize / unwrap message.
+     */
     const unwrapped =
         unwrapMessage(message.message);
 
@@ -297,12 +355,18 @@ async function serialize(message, conn) {
         return null;
     }
 
+    /**
+     * Detect actual content type.
+     */
     const {
         key: messageTypeKey,
         mime: messageMime,
     } = getMessageMimeType(unwrapped);
 
-    if (messageMime === "unknown") {
+    if (
+        messageTypeKey === "unknown" ||
+        messageMime === "unknown"
+    ) {
         console.log(
             "⚠️ Serialize: unknown message type:",
             Object.keys(unwrapped)
@@ -311,18 +375,33 @@ async function serialize(message, conn) {
         return null;
     }
 
+    /**
+     * Actual message content.
+     */
     const messageContent =
         unwrapped[messageTypeKey];
 
+    /**
+     * Group check.
+     */
     const isGroup =
         key.remoteJid.endsWith("@g.us");
 
+    /**
+     * Chat JID.
+     */
     const from =
         key.remoteJid;
 
+    /**
+     * Alternative JID / LID.
+     */
     const fromAlt =
         key.remoteJidAlt || null;
 
+    /**
+     * Sender information.
+     */
     const {
         participant,
         participantAlt,
@@ -334,68 +413,129 @@ async function serialize(message, conn) {
         conn
     );
 
+    /**
+     * Context information.
+     */
     const contextInfo =
         messageContent?.contextInfo ||
         messageContent?.contextInfoV2 ||
         null;
 
+    /**
+     * Quoted message.
+     */
     const quoted =
         extractQuotedMessage(
             contextInfo
         );
 
+    /**
+     * Message body.
+     */
     const body =
-        extractTextFromContent(
+        getBody(
             messageContent,
             messageTypeKey
         );
 
+    /**
+     * Final serialized message.
+     */
     return {
+        /**
+         * Original Baileys key.
+         */
         key,
 
+        /**
+         * Message ID.
+         */
         id:
             key.id || "",
 
+        /**
+         * WhatsApp push name.
+         */
         pushName:
             pushName || "",
 
+        /**
+         * Group or private chat.
+         */
         isGroup,
 
+        /**
+         * Chat JID.
+         */
         from,
 
+        /**
+         * Alternative JID / LID.
+         */
         fromAlt,
 
+        /**
+         * Simplified type:
+         * text/image/video/etc.
+         */
         type:
             messageMime,
 
+        /**
+         * Actual message content.
+         */
         message:
             messageContent,
 
+        /**
+         * Original WhatsApp message type.
+         */
         messageTypeKey,
 
+        /**
+         * Unwrapped raw content.
+         */
         rawMessage:
             unwrapped,
 
+        /**
+         * Text / caption.
+         */
         body,
 
+        /**
+         * Quoted message.
+         */
         quoted,
 
+        /**
+         * Group participant.
+         */
         participant,
 
+        /**
+         * Alternative participant.
+         */
         participantAlt,
 
+        /**
+         * Sender JID.
+         */
         sender,
 
+        /**
+         * Whether message was sent by bot.
+         */
         isBotMessage,
 
         /**
-         * Original Baileys message.
-         * Useful for media downloading and advanced handlers.
+         * Original complete Baileys message.
          */
         originalMessage:
             message,
     };
 }
+
 
 export {
     serialize,
