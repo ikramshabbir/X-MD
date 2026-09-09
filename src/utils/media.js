@@ -14,16 +14,20 @@ import { MEDIA } from "../config/constants.js";
 /** Minimal pino-like logger for Baileys media helpers */
 const mediaLogger = {
   level: "error",
+
   child() {
     return this;
   },
+
   trace() {},
   debug() {},
   info() {},
   warn() {},
+
   error(...args) {
     console.error("[media]", ...args);
   },
+
   fatal(...args) {
     console.error("[media]", ...args);
   },
@@ -35,7 +39,11 @@ const TEMP_PREFIX = "x-asena-";
  * Create a unique temp path under os.tmpdir()
  */
 export function createTempPath(ext = "") {
-  const name = `${TEMP_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext ? (ext.startsWith(".") ? ext : `.${ext}`) : ""}`;
+  const name =
+    `${TEMP_PREFIX}${Date.now()}-` +
+    `${Math.random().toString(36).slice(2, 8)}` +
+    `${ext ? (ext.startsWith(".") ? ext : `.${ext}`) : ""}`;
+
   return path.join(os.tmpdir(), name);
 }
 
@@ -44,6 +52,7 @@ export function createTempPath(ext = "") {
  */
 export async function safeUnlink(filePath) {
   if (!filePath) return;
+
   try {
     await fs.unlink(filePath);
   } catch {
@@ -56,7 +65,9 @@ export async function safeUnlink(filePath) {
  */
 export async function writeTempFile(buffer, ext = "") {
   const filePath = createTempPath(ext);
+
   await fs.writeFile(filePath, buffer);
+
   return filePath;
 }
 
@@ -65,16 +76,30 @@ export async function writeTempFile(buffer, ext = "") {
  */
 export async function streamToFile(stream, filePath) {
   let nodeStream;
+
   if (stream instanceof Readable) {
     nodeStream = stream;
-  } else if (stream && typeof stream.getReader === "function") {
+  } else if (
+    stream &&
+    typeof stream.getReader === "function"
+  ) {
     nodeStream = Readable.fromWeb(stream);
-  } else if (stream && Symbol.asyncIterator in Object(stream)) {
+  } else if (
+    stream &&
+    Symbol.asyncIterator in Object(stream)
+  ) {
     nodeStream = Readable.from(stream);
   } else {
-    throw new Error("Unsupported download stream type");
+    throw new Error(
+      "Unsupported download stream type"
+    );
   }
-  await pipeline(nodeStream, createWriteStream(filePath));
+
+  await pipeline(
+    nodeStream,
+    createWriteStream(filePath)
+  );
+
   return filePath;
 }
 
@@ -83,150 +108,594 @@ export async function streamToFile(stream, filePath) {
  */
 export function mimeToMessageKey(typeOrMime) {
   const t = (typeOrMime || "").toLowerCase();
-  if (t.includes("image") || t === "image") return "imageMessage";
-  if (t.includes("video") || t === "video") return "videoMessage";
-  if (t.includes("audio") || t === "audio") return "audioMessage";
-  if (t.includes("sticker") || t === "sticker") return "stickerMessage";
-  if (t.includes("document") || t === "document") return "documentMessage";
+
+  if (
+    t.includes("image") ||
+    t === "image"
+  ) {
+    return "imageMessage";
+  }
+
+  if (
+    t.includes("video") ||
+    t === "video"
+  ) {
+    return "videoMessage";
+  }
+
+  if (
+    t.includes("audio") ||
+    t === "audio"
+  ) {
+    return "audioMessage";
+  }
+
+  if (
+    t.includes("sticker") ||
+    t === "sticker"
+  ) {
+    return "stickerMessage";
+  }
+
+  if (
+    t.includes("document") ||
+    t === "document"
+  ) {
+    return "documentMessage";
+  }
+
   return null;
 }
 
 /**
- * Build a WAMessage-like object for downloadMediaMessage
+ * Build a WAMessage-like object for normal media download.
  */
-function buildDownloadable(message, source = "self") {
-  if (source === "quoted" && message.quoted) {
+function buildDownloadable(
+  message,
+  source = "self"
+) {
+  if (
+    source === "quoted" &&
+    message.quoted
+  ) {
     const q = message.quoted;
+
     const keyName =
-      q.messageTypeKey || mimeToMessageKey(q.type || q.mimetype);
+      q.messageTypeKey ||
+      mimeToMessageKey(
+        q.type || q.mimetype
+      );
+
     if (!keyName) return null;
 
     const content =
       q.raw?.[keyName] ||
       (() => {
-        const { type, messageTypeKey, raw, text, caption, ...rest } = q;
+        const {
+          type,
+          messageTypeKey,
+          raw,
+          text,
+          caption,
+          ...rest
+        } = q;
+
         return rest;
       })();
 
     return {
       key: {
         remoteJid: message.from,
-        id: message.message?.contextInfo?.stanzaId || message.id,
+        id:
+          message.message?.contextInfo
+            ?.stanzaId ||
+          message.id,
+
         fromMe: false,
-        participant: message.message?.contextInfo?.participant,
+
+        participant:
+          message.message?.contextInfo
+            ?.participant,
       },
-      message: { [keyName]: content },
+
+      message: {
+        [keyName]: content,
+      },
     };
   }
 
   const keyName =
-    message.messageTypeKey || mimeToMessageKey(message.type);
-  if (!keyName || !message.message) return null;
-
-  // serialize stores inner content in message; wrap it
-  const inner =
-    message.rawMessage?.[keyName] ||
-    (message.message?.[keyName] ? message.message[keyName] : message.message);
-
-  return {
-    key: message.key,
-    message: { [keyName]: inner },
-  };
-}
-
-/**
- * Download media from the message itself or a quoted message.
- * Returns { buffer, mimetype, type, filePath? } — caller should unlink filePath if set.
- */
-export async function downloadQuotedOrSelf(conn, message, { preferQuoted = true } = {}) {
-  const hasQuotedMedia =
-    preferQuoted &&
-    message.quoted &&
-    ["image", "video", "audio", "sticker", "document"].includes(
-      message.quoted.type
-    );
-
-  const useQuoted = hasQuotedMedia;
-  const meta = useQuoted
-    ? {
-        type: message.quoted.type,
-        mimetype: message.quoted.mimetype,
-      }
-    : {
-        type: message.type,
-        mimetype: message.message?.mimetype,
-      };
+    message.messageTypeKey ||
+    mimeToMessageKey(message.type);
 
   if (
-    !["image", "video", "audio", "sticker", "document"].includes(meta.type)
+    !keyName ||
+    !message.message
   ) {
     return null;
   }
 
-  const waMsg = buildDownloadable(message, useQuoted ? "quoted" : "self");
-  if (!waMsg) return null;
-
-  const buffer = await downloadMediaMessage(
-    waMsg,
-    "buffer",
-    {},
-    {
-      logger: mediaLogger,
-      reuploadRequest: conn.updateMediaMessage?.bind(conn),
-    }
-  );
+  const inner =
+    message.rawMessage?.[keyName] ||
+    (
+      message.message?.[keyName]
+        ? message.message[keyName]
+        : message.message
+    );
 
   return {
-    buffer: Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer),
-    mimetype: meta.mimetype || null,
-    type: meta.type,
+    key: message.key,
+
+    message: {
+      [keyName]: inner,
+    },
   };
 }
 
 /**
- * Assert size under cap; throws Error with friendly message
+ * Download media from the message itself
+ * or a quoted message.
+ *
+ * Returns:
+ * {
+ *   buffer,
+ *   mimetype,
+ *   type
+ * }
  */
-export function assertSize(bytes, maxBytes, label = "File") {
+export async function downloadQuotedOrSelf(
+  conn,
+  message,
+  {
+    preferQuoted = true,
+  } = {}
+) {
+  const hasQuotedMedia =
+    preferQuoted &&
+    message.quoted &&
+    [
+      "image",
+      "video",
+      "audio",
+      "sticker",
+      "document",
+    ].includes(message.quoted.type);
+
+  const useQuoted = hasQuotedMedia;
+
+  const meta = useQuoted
+    ? {
+        type: message.quoted.type,
+        mimetype:
+          message.quoted.mimetype,
+      }
+    : {
+        type: message.type,
+        mimetype:
+          message.message?.mimetype,
+      };
+
+  if (
+    ![
+      "image",
+      "video",
+      "audio",
+      "sticker",
+      "document",
+    ].includes(meta.type)
+  ) {
+    return null;
+  }
+
+  const waMsg = buildDownloadable(
+    message,
+    useQuoted
+      ? "quoted"
+      : "self"
+  );
+
+  if (!waMsg) return null;
+
+  const buffer =
+    await downloadMediaMessage(
+      waMsg,
+      "buffer",
+      {},
+      {
+        logger: mediaLogger,
+
+        reuploadRequest:
+          conn.updateMediaMessage?.bind(
+            conn
+          ),
+      }
+    );
+
+  return {
+    buffer: Buffer.isBuffer(buffer)
+      ? buffer
+      : Buffer.from(buffer),
+
+    mimetype:
+      meta.mimetype || null,
+
+    type: meta.type,
+  };
+}
+
+/* =========================================================
+   VIEW ONCE DOWNLOADER
+========================================================= */
+
+/**
+ * Find a real WAMessage inside a quoted object.
+ */
+function getQuotedWAMessage(
+  message
+) {
+  const q = message?.quoted;
+
+  if (!q) return null;
+
+  /*
+   * Best case:
+   * serializer kept the original WAMessage.
+   */
+  if (
+    q.originalMessage?.key &&
+    q.originalMessage?.message
+  ) {
+    return q.originalMessage;
+  }
+
+  /*
+   * Some serializers store the WAMessage
+   * directly inside raw.
+   */
+  if (
+    q.raw?.key &&
+    q.raw?.message
+  ) {
+    return q.raw;
+  }
+
+  /*
+   * Some serializers store the message
+   * content inside originalMessage.message.
+   */
+  if (
+    q.originalMessage?.message
+  ) {
+    const key =
+      q.originalMessage.key ||
+      q.key ||
+      {
+        remoteJid:
+          message.from,
+        id:
+          q.id ||
+          message.message?.contextInfo
+            ?.stanzaId ||
+          message.id,
+        fromMe: false,
+      };
+
+    return {
+      key,
+      message:
+        q.originalMessage.message,
+    };
+  }
+
+  /*
+   * raw may contain the actual message
+   * content instead of a complete WAMessage.
+   */
+  if (q.raw) {
+    const key =
+      q.key ||
+      {
+        remoteJid:
+          message.from,
+        id:
+          q.id ||
+          message.message?.contextInfo
+            ?.stanzaId ||
+          message.id,
+        fromMe: false,
+        participant:
+          q.participant,
+      };
+
+    return {
+      key,
+      message: q.raw,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Unwrap View Once containers.
+ */
+function unwrapViewOnce(
+  message
+) {
+  if (!message) return null;
+
+  let current = message;
+
+  for (
+    let i = 0;
+    i < 10 && current;
+    i++
+  ) {
+    if (
+      current.ephemeralMessage
+        ?.message
+    ) {
+      current =
+        current.ephemeralMessage.message;
+      continue;
+    }
+
+    if (
+      current.viewOnceMessage
+        ?.message
+    ) {
+      current =
+        current.viewOnceMessage.message;
+      continue;
+    }
+
+    if (
+      current.viewOnceMessageV2
+        ?.message
+    ) {
+      current =
+        current.viewOnceMessageV2.message;
+      continue;
+    }
+
+    if (
+      current.viewOnceMessageV2Extension
+        ?.message
+    ) {
+      current =
+        current.viewOnceMessageV2Extension.message;
+      continue;
+    }
+
+    break;
+  }
+
+  return current;
+}
+
+/**
+ * Detect View Once media.
+ */
+export function getViewOnceMediaInfo(
+  wamessage
+) {
+  if (!wamessage) return null;
+
+  const content =
+    unwrapViewOnce(
+      wamessage.message ||
+        wamessage
+    );
+
+  if (!content) return null;
+
+  if (content.imageMessage) {
+    return {
+      type: "image",
+      content:
+        content.imageMessage,
+    };
+  }
+
+  if (content.videoMessage) {
+    return {
+      type: "video",
+      content:
+        content.videoMessage,
+    };
+  }
+
+  if (content.audioMessage) {
+    return {
+      type: "audio",
+      content:
+        content.audioMessage,
+    };
+  }
+
+  if (content.documentMessage) {
+    return {
+      type: "document",
+      content:
+        content.documentMessage,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Download a View Once quoted message.
+ *
+ * This keeps the original View Once
+ * wrapper and original message key.
+ */
+export async function downloadViewOnce(
+  conn,
+  message
+) {
+  const wamessage =
+    getQuotedWAMessage(
+      message
+    );
+
+  if (!wamessage) {
+    throw new Error(
+      "Original quoted WAMessage not found"
+    );
+  }
+
+  const info =
+    getViewOnceMediaInfo(
+      wamessage
+    );
+
+  if (!info) {
+    throw new Error(
+      "Quoted message is not View Once media"
+    );
+  }
+
+  const buffer =
+    await downloadMediaMessage(
+      wamessage,
+      "buffer",
+      {},
+      {
+        logger: mediaLogger,
+
+        reuploadRequest:
+          conn.updateMediaMessage?.bind(
+            conn
+          ),
+      }
+    );
+
+  if (!buffer) {
+    throw new Error(
+      "View Once download returned empty buffer"
+    );
+  }
+
+  return {
+    buffer: Buffer.isBuffer(buffer)
+      ? buffer
+      : Buffer.from(buffer),
+
+    type: info.type,
+
+    content: info.content,
+
+    mimetype:
+      info.content?.mimetype ||
+      null,
+  };
+}
+
+/**
+ * Assert size under cap; throws Error
+ */
+export function assertSize(
+  bytes,
+  maxBytes,
+  label = "File"
+) {
   if (bytes > maxBytes) {
-    const mb = (maxBytes / (1024 * 1024)).toFixed(0);
-    throw new Error(`${label} is too large (max ${mb}MB).`);
+    const mb = (
+      maxBytes /
+      (1024 * 1024)
+    ).toFixed(0);
+
+    throw new Error(
+      `${label} is too large (max ${mb}MB).`
+    );
   }
 }
 
-export function assertAudioSize(bytes) {
-  assertSize(bytes, MEDIA.MAX_AUDIO_BYTES, "Audio");
+export function assertAudioSize(
+  bytes
+) {
+  assertSize(
+    bytes,
+    MEDIA.MAX_AUDIO_BYTES,
+    "Audio"
+  );
 }
 
-export function assertVideoSize(bytes) {
-  assertSize(bytes, MEDIA.MAX_VIDEO_BYTES, "Video");
+export function assertVideoSize(
+  bytes
+) {
+  assertSize(
+    bytes,
+    MEDIA.MAX_VIDEO_BYTES,
+    "Video"
+  );
 }
 
 /**
- * Lazy fluent-ffmpeg wrapper — convert file with options
+ * Lazy fluent-ffmpeg wrapper
  */
-export async function ffmpegConvert(inputPath, outputPath, optionsFn) {
-  const ffmpeg = (await import("fluent-ffmpeg")).default;
-  return new Promise((resolve, reject) => {
-    let cmd = ffmpeg(inputPath);
-    if (typeof optionsFn === "function") {
-      cmd = optionsFn(cmd) || cmd;
+export async function ffmpegConvert(
+  inputPath,
+  outputPath,
+  optionsFn
+) {
+  const ffmpeg =
+    (
+      await import(
+        "fluent-ffmpeg"
+      )
+    ).default;
+
+  return new Promise(
+    (resolve, reject) => {
+      let cmd =
+        ffmpeg(inputPath);
+
+      if (
+        typeof optionsFn ===
+        "function"
+      ) {
+        cmd =
+          optionsFn(cmd) ||
+          cmd;
+      }
+
+      cmd
+        .on("end", () =>
+          resolve(outputPath)
+        )
+        .on("error", (err) =>
+          reject(err)
+        )
+        .save(outputPath);
     }
-    cmd
-      .on("end", () => resolve(outputPath))
-      .on("error", (err) => reject(err))
-      .save(outputPath);
-  });
+  );
 }
 
 /**
- * Convert media buffer/file to audio/mp3 via ffmpeg
+ * Convert media to mp3
  */
-export async function toMp3(inputPath) {
-  const out = createTempPath(".mp3");
+export async function toMp3(
+  inputPath
+) {
+  const out =
+    createTempPath(".mp3");
+
   try {
-    await ffmpegConvert(inputPath, out, (cmd) =>
-      cmd.noVideo().audioCodec("libmp3lame").audioBitrate("128k").format("mp3")
+    await ffmpegConvert(
+      inputPath,
+      out,
+      (cmd) =>
+        cmd
+          .noVideo()
+          .audioCodec(
+            "libmp3lame"
+          )
+          .audioBitrate("128k")
+          .format("mp3")
     );
+
     return out;
   } catch (err) {
     await safeUnlink(out);
@@ -235,49 +704,87 @@ export async function toMp3(inputPath) {
 }
 
 /**
- * Run fn with temp cleanup of listed paths in finally
+ * Run fn with temp cleanup
  */
-export async function withTempFiles(pathsOrFactory, fn) {
+export async function withTempFiles(
+  pathsOrFactory,
+  fn
+) {
   const paths = [];
+
   const track = (p) => {
     if (p) paths.push(p);
     return p;
   };
+
   try {
-    if (typeof pathsOrFactory === "function") {
+    if (
+      typeof pathsOrFactory ===
+      "function"
+    ) {
       return await fn(track);
     }
-    paths.push(...(pathsOrFactory || []).filter(Boolean));
+
+    paths.push(
+      ...(pathsOrFactory || [])
+        .filter(Boolean)
+    );
+
     return await fn(track);
   } finally {
-    await Promise.all(paths.map(safeUnlink));
+    await Promise.all(
+      paths.map(safeUnlink)
+    );
   }
 }
 
 /**
  * Format seconds as m:ss
  */
-export function formatDuration(seconds) {
-  const s = Math.max(0, Math.floor(Number(seconds) || 0));
-  const m = Math.floor(s / 60);
+export function formatDuration(
+  seconds
+) {
+  const s = Math.max(
+    0,
+    Math.floor(
+      Number(seconds) || 0
+    )
+  );
+
+  const m = Math.floor(
+    s / 60
+  );
+
   const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
+
+  return `${m}:${String(r).padStart(
+    2,
+    "0"
+  )}`;
 }
 
 /**
- * Extract YouTube video id from URL or return null
+ * Extract YouTube video id
  */
-export function extractYoutubeId(input) {
+export function extractYoutubeId(
+  input
+) {
   if (!input) return null;
-  const text = String(input).trim();
+
+  const text =
+    String(input).trim();
+
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
     /^([a-zA-Z0-9_-]{11})$/,
   ];
+
   for (const re of patterns) {
-    const m = text.match(re);
+    const m =
+      text.match(re);
+
     if (m) return m[1];
   }
+
   return null;
 }
-
