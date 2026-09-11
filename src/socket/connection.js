@@ -13,11 +13,10 @@
  */
 
 import makeWASocket, {
-  fetchLatestWaWebVersion,
   DisconnectReason,
   makeCacheableSignalKeyStore,
   Browsers,
-} from "baileys";
+} from "@whiskeysockets/baileys";
 
 import pino from "pino";
 import qrcode from "qrcode-terminal";
@@ -53,8 +52,6 @@ const DEFAULT_SESSION_ID = "default";
 const BASE_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 60000;
 
-let cachedVersion = null;
-
 /* =========================================================
  * CONNECTION MAPS
  * ======================================================= */
@@ -87,38 +84,6 @@ export function makeSessionId(number) {
   );
 
   return `wa-${clean}`;
-}
-
-/* =========================================================
- * WHATSAPP WEB VERSION
- * ======================================================= */
-
-async function getBaileysVersion() {
-  if (cachedVersion) {
-    return cachedVersion;
-  }
-
-  try {
-    const result =
-      await fetchLatestWaWebVersion();
-
-    if (result?.version) {
-      cachedVersion = result.version;
-
-      console.log(
-        `📡 WhatsApp Web version: ${cachedVersion.join(".")}`
-      );
-
-      return cachedVersion;
-    }
-  } catch (error) {
-    console.log(
-      "⚠️ Could not fetch WhatsApp Web version:",
-      error?.message || error
-    );
-  }
-
-  return undefined;
 }
 
 /* =========================================================
@@ -177,13 +142,6 @@ async function createConnection(
       );
 
       /* =================================================
-       * BAILEYS VERSION
-       * =============================================== */
-
-      const version =
-        await getBaileysVersion();
-
-      /* =================================================
        * SOCKET OPTIONS
        * =============================================== */
 
@@ -212,11 +170,6 @@ async function createConnection(
         browser:
           Browsers.macOS("Chrome"),
       };
-
-      if (version) {
-        socketOptions.version =
-          version;
-      }
 
       /* =================================================
        * CREATE SOCKET
@@ -894,7 +847,7 @@ export async function requestPortalPairing(
                     "WhatsApp socket did not start pairing in time"
                   )
                 ),
-              15000
+              20000
             )
         ),
       ]);
@@ -906,7 +859,7 @@ export async function requestPortalPairing(
       (resolve) =>
         setTimeout(
           resolve,
-          1000
+          1500
         )
     );
 
@@ -962,7 +915,8 @@ export async function requestPortalPairing(
   } catch (error) {
     console.log(
       `❌ Pairing failed [${sessionId}]:`,
-      error?.message ||
+      error?.stack ||
+        error?.message ||
         error
     );
 
