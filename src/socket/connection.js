@@ -44,6 +44,8 @@ useMultiDbAuthState,
 resetMultiDbAuthState,
 } from "../database/authState.js";
 
+import { handleDeletedMessage } from "../plugins/antidelete.js";
+import { msgCache, makeMessageCacheKey } from "../utils/cache.js";
 import { serialize } from "../messages/serialize.js";
 import { messageHandler } from "../messages/handler.js";
 import { setConnection } from "../terminal/handler.js";
@@ -115,7 +117,7 @@ const clean = String(number || "").replace(
 ""
 );
 
-return wa-${clean};
+return `wa-${clean}`;
 }
 
 /* =========================================================
@@ -682,6 +684,10 @@ const {
           const rawMessage  
           of messages  
         ) {  
+        if (rawMessage?.key?.id && rawMessage?.key?.remoteJid && !rawMessage.key.fromMe) {
+          const cacheKey = makeMessageCacheKey(sessionId, rawMessage.key.remoteJid, rawMessage.key.id);
+          if (cacheKey) msgCache.set(cacheKey, rawMessage);
+        }
           if (  
             !rawMessage  
           ) {  
@@ -766,33 +772,39 @@ const {
 
             await messageHandler({  
               conn,  
-              message,  
-              sessionId,  
-              type,  
-            });  
+            message,
+            sessionId,
+            type,
+          });
 
-            console.log(  
-              `✅ HANDLER FINISHED [${sessionId}]`  
-            );  
-          } catch (error) {  
-            console.log(  
-              `⚠️ Message processing error [${sessionId}]:`,  
-              error?.stack ||  
-                error?.message ||  
-                error  
-            );  
-          }  
-        }  
-      } catch (error) {  
-        console.log(  
-          `⚠️ messages.upsert error [${sessionId}]:`,  
-          error?.stack ||  
-            error?.message ||  
-            error  
-        );  
-      }  
-    }  
-  );  
+          console.log(
+            `✅ HANDLER FINISHED [${sessionId}]`
+          );
+        } catch (error) {
+          console.log(
+            `⚠️ Message processing error [${sessionId}]:`,
+            error?.stack || error?.message || error
+          );
+        }
+      }
+    } catch (error) {
+      console.log(
+        `⚠️ messages.upsert error [${sessionId}]:`,
+        error?.stack || error?.message || error
+      );
+    }
+  }
+  );
+
+  conn.ev.on("messages.update", async (updates) => {
+    for (const update of updates || []) {
+      try {
+        await handleDeletedMessage(conn, update, sessionId);
+      } catch (error) {
+        console.log(`⚠️ AntiDelete error [${sessionId}]:`, error?.message || error);
+      }
+    }
+  });
 
   /* =================================================  
    * RETURN CONNECTION  
@@ -917,13 +929,11 @@ pairingLocks.add(
 sessionId
 );
 
-try {
-console.log(
-🔐 Pairing request: ${cleanNumber}
-);
+    console.log(`🔐 Pairing request: ${cleanNumber}`);
 
 /* CREATE NUMBER-SPECIFIC SESSION */  
 
+  try {
 const conn =  
   await connect(  
     sessionId  
@@ -1009,18 +1019,11 @@ pairingInfo.set(
 console.log(  
   `🔗 Pairing code generated for ${sessionId}: ${code}`  
 );  
-
-return {  
-  code,  
-  sessionId,  
-};
-
-} catch (error) {
-console.log(
-❌ Pairing failed [${sessionId}]:,
-error?.message ||
-error
-);
+  return {
+    code,
+    sessionId,
+  };
+  throw error;
 
 throw error;
 
@@ -1106,9 +1109,7 @@ if (!conn) {
 return false;
 }
 
-console.log(
-🛑 Disconnecting session: ${sessionId}
-);
+  console.log(`🛑 Disconnecting session: ${sessionId}`);
 
 manualDisconnects.add(
 sessionId
