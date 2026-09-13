@@ -49,18 +49,21 @@ function ensureDatabase() {
   }
 }
 
-async function isAntiDeleteEnabled() {
+async function isAntiDeleteEnabled(sessionId = "default") {
   try {
-    const value = await kvGet("antidelete");
+    const value = await kvGet(`antidelete:${sessionId}`);
     return value === true || value === "true" || value === 1;
   } catch {
     return false;
   }
 }
 
-async function setAntiDelete(enabled) {
+async function setAntiDelete(enabled, sessionId = "default") {
   try {
-    await kvSet("antidelete", Boolean(enabled));
+    await kvSet(
+      `antidelete:${sessionId}`,
+      Boolean(enabled)
+    );
     return true;
   } catch (error) {
     console.log(
@@ -491,7 +494,7 @@ export async function handleDeletedMessage(
   sessionId = "default"
 ) {
   try {
-    if (!(await isAntiDeleteEnabled())) {
+    if (!(await isAntiDeleteEnabled(sessionId))) {
       return false;
     }
 
@@ -641,7 +644,7 @@ command(
     desc: "Enable, disable or check AntiDelete",
     type: "misc",
   },
-  async (message, conn) => {
+  async (message, conn, sessionId = "default") => {
     const args =
       String(message?.body || "")
         .trim()
@@ -654,12 +657,12 @@ command(
       args === "on" ||
       args === "enable"
     ) {
-      await setAntiDelete(true);
+      await setAntiDelete(true, sessionId);
 
       return replyOk(
         conn,
         message,
-        "AntiDelete is ON 🟢 globally."
+        "AntiDelete is ON 🟢 for this number."
       );
     }
 
@@ -667,21 +670,21 @@ command(
       args === "off" ||
       args === "disable"
     ) {
-      await setAntiDelete(false);
+      await setAntiDelete(false, sessionId);
 
       return replyOk(
         conn,
         message,
-        "AntiDelete is OFF 🔴 globally."
+        "AntiDelete is OFF 🔴 for this number."
       );
     }
 
     return reply(
       conn,
       message,
-      (await isAntiDeleteEnabled())
-        ? "✅ AntiDelete is ON 🟢 globally."
-        : "❌ AntiDelete is OFF 🔴 globally."
+      (await isAntiDeleteEnabled(sessionId))
+        ? "✅ AntiDelete is ON 🟢 for this number."
+        : "❌ AntiDelete is OFF 🔴 for this number."
     );
   }
 );

@@ -564,43 +564,6 @@ async function createConnection(
                 console.log(
                   `⚠️ 401 during active pairing: ${sessionId}`
                 );
-
-                /*
-                 * A 401 before pairing succeeds usually means
-                 * this session's saved auth is stale/invalid.
-                 *
-                 * Reset ONLY this session. Do not reconnect the
-                 * same stale auth state in a loop.
-                 */
-                try {
-                  await resetMultiDbAuthState(
-                    sessionId
-                  );
-                } catch (error) {
-                  console.log(
-                    "⚠️ Pairing auth reset error:",
-                    error?.message || error
-                  );
-                }
-
-                pairingInfo.delete(
-                  sessionId
-                );
-
-                reconnectAttempts.delete(
-                  sessionId
-                );
-
-                console.log(
-                  `🧹 Stale pairing session cleared: ${sessionId}`
-                );
-
-                /*
-                 * Stop this reconnect cycle.
-                 * Portal can now create a completely fresh
-                 * pairing session for this number.
-                 */
-                return;
               }
 
 
@@ -929,185 +892,101 @@ export async function requestPortalPairing(
   suppliedSessionId = null
 ) {
   const cleanNumber =
-    String(number || "").replace(/\D/g, "");
+    String(number || "")
+      .replace(/\D/g, "");
 
   if (!cleanNumber) {
-    throw new Error("Invalid WhatsApp number");
+    throw new Error(
+      "Invalid WhatsApp number"
+    );
   }
+
+  /* -------------------------------------------------------
+     NUMBER = SEPARATE SESSION
+  ----------------------------------------------------- */
 
   const sessionId =
     suppliedSessionId ||
-    makeSessionId(cleanNumber);
+    makeSessionId(
+      cleanNumber
+    );
 
   console.log(
     `🔐 Pairing request: ${cleanNumber}`
   );
 
-  /*
-   * -------------------------------------------------------
-   * DUPLICATE REQUEST
-   * -------------------------------------------------------
-   *
-   * Never allow two pairing operations for the
-   * same WhatsApp number at the same time.
-   */
-  if (pairingLocks.has(sessionId)) {
-    const active =
-      getActivePairingInfo(sessionId);
+  /* -------------------------------------------------------
+     ALREADY CONNECTED
+  ----------------------------------------------------- */
 
-    if (
-      active?.code &&
-      !active.connected
-    ) {
-      console.log(
-        `♻️ Returning active pairing code for ${sessionId}`
-      );
+  const existing =
+    connections.get(
+      sessionId
+    );
 
-      return {
-        code: active.code,
-        sessionId,
-      };
-    }
+  if (existing?.user) {
+    throw new Error(
+      "WhatsApp is already connected"
+    );
+  }
 
+  /* -------------------------------------------------------
+     REUSE ACTIVE PAIRING CODE
+  ----------------------------------------------------- */
+
+  const activePairing =
+    getActivePairingInfo(
+      sessionId
+    );
+
+  if (
+    activePairing?.code &&
+    !activePairing.connected
+  ) {
+    const age =
+      Date.now() -
+      activePairing.createdAt;
+
+    console.log(
+      `♻️ Reusing active pairing code for ${sessionId} (${Math.round(age / 1000)}s old)`
+    );
+
+    return {
+      code: activePairing.code,
+      sessionId,
+    };
+  }
+
+  /* -------------------------------------------------------
+     DUPLICATE PAIRING REQUEST
+  ----------------------------------------------------- */
+
+  if (
+    pairingLocks.has(sessionId)
+  ) {
     throw new Error(
       "Pairing request already in progress"
     );
   }
 
-  pairingLocks.add(sessionId);
+  pairingLocks.add(
+    sessionId
+  );
 
   try {
-    /*
-     * -------------------------------------------------------
-     * SAME-NUMBER REPLACEMENT
-     * -------------------------------------------------------
-     *
-     * If this number already has a socket, close ONLY
-     * that socket. Other WhatsApp sessions are untouched.
-     */
-    const oldConn =
-      connections.get(sessionId);
-
-    if (oldConn) {
-      console.log(
-        `♻️ Replacing old WhatsApp session: ${sessionId}`
-      );
-
-      /*
-       * Prevent the close handler from automatically
-       * reconnecting the old socket.
-       */
-      manualDisconnects.add(sessionId);
-
-      clearPairingCode(sessionId);
-
-      try {
-        oldConn.end(
-          new Error(
-            "Replacing session for fresh pairing"
-          )
-        );
-      } catch (error) {
-        console.log(
-          `⚠️ Old socket close warning: ${sessionId}`,
-          error?.message || error
-        );
-      }
-
-      /*
-       * Wait for the old socket's close handler.
-       */
-      const closeDeadline =
-        Date.now() + 8000;
-
-      while (
-        connections.get(sessionId) === oldConn &&
-        Date.now() < closeDeadline
-      ) {
-        await new Promise(
-          (resolve) =>
-            setTimeout(resolve, 100)
-        );
-      }
-
-      /*
-       * Safety cleanup if the close event did not
-       * remove the old connection.
-       */
-      if (
-        connections.get(sessionId) === oldConn
-      ) {
-        connections.delete(sessionId);
-      }
-
-      pairingReadyPromises.delete(
-        sessionId
-      );
-
-      connectingPromises.delete(
-        sessionId
-      );
-    }
-
-    /*
-     * -------------------------------------------------------
-     * FRESH AUTH
-     * -------------------------------------------------------
-     *
-     * Reset ONLY this number's SQLite auth state.
-     */
-    console.log(
-      `🧹 Clearing old auth: ${sessionId}`
-    );
-
-    try {
-      await resetMultiDbAuthState(
-        sessionId
-      );
-    } catch (error) {
-      console.log(
-        `⚠️ Auth reset warning for ${sessionId}:`,
-        error?.message || error
-      );
-    }
-
-    /*
-     * Make sure the old manual-disconnect state
-     * does not affect the NEW socket.
-     */
-    manualDisconnects.delete(
-      sessionId
-    );
-
-    reconnectAttempts.delete(
-      sessionId
-    );
-
-    pairingInfo.delete(
-      sessionId
-    );
-
-    clearPairingCode(
-      sessionId
-    );
-
-    /*
-     * -------------------------------------------------------
-     * CREATE COMPLETELY FRESH SOCKET
-     * -------------------------------------------------------
-     */
-    console.log(
-      `🆕 Creating fresh WhatsApp session: ${sessionId}`
-    );
+    /* =====================================================
+       CREATE NUMBER-SPECIFIC SESSION
+    ===================================================== */
 
     const conn =
-      await connect(sessionId);
+      await connect(
+        sessionId
+      );
 
-    /*
-     * -------------------------------------------------------
-     * WAIT FOR SOCKET INITIALIZATION
-     * -------------------------------------------------------
-     */
+    /* =====================================================
+       WAIT FOR SOCKET START
+    ===================================================== */
+
     const ready =
       pairingReadyPromises.get(
         sessionId
@@ -1132,9 +1011,10 @@ export async function requestPortalPairing(
       ]);
     }
 
-    /*
-     * Small delay so Baileys finishes socket setup.
-     */
+    /* =====================================================
+       INITIALIZATION DELAY
+    ===================================================== */
+
     await new Promise(
       (resolve) =>
         setTimeout(
@@ -1143,25 +1023,43 @@ export async function requestPortalPairing(
         )
     );
 
-    /*
-     * Do NOT reject because this number was previously
-     * connected. We intentionally replaced that session.
-     */
-    if (conn.user) {
-      console.log(
-        `⚠️ Fresh socket unexpectedly became connected: ${sessionId}`
-      );
+    /* =====================================================
+       CHECK CONNECTION
+    ===================================================== */
 
+    if (conn.user) {
       throw new Error(
-        "Fresh pairing socket connected before pairing code was requested"
+        "WhatsApp is already connected"
       );
     }
 
-    /*
-     * -------------------------------------------------------
-     * REQUEST FRESH PAIRING CODE
-     * -------------------------------------------------------
-     */
+    /* =====================================================
+       CHECK AGAIN FOR CODE CREATED WHILE WAITING
+    ===================================================== */
+
+    const existingCode =
+      getActivePairingInfo(
+        sessionId
+      );
+
+    if (
+      existingCode?.code &&
+      !existingCode.connected
+    ) {
+      console.log(
+        `♻️ Existing pairing code found for ${sessionId}`
+      );
+
+      return {
+        code: existingCode.code,
+        sessionId,
+      };
+    }
+
+    /* =====================================================
+       REQUEST FRESH PAIRING CODE
+    ===================================================== */
+
     console.log(
       `🔑 Requesting fresh pairing code for ${cleanNumber}`
     );
@@ -1177,11 +1075,10 @@ export async function requestPortalPairing(
       );
     }
 
-    /*
-     * -------------------------------------------------------
-     * SAVE PAIRING INFO
-     * -------------------------------------------------------
-     */
+    /* =====================================================
+       SAVE PAIRING INFO
+    ===================================================== */
+
     pairingInfo.set(
       sessionId,
       {
@@ -1194,15 +1091,18 @@ export async function requestPortalPairing(
     );
 
     console.log(
-      `🔗 Fresh pairing code generated for ${sessionId}: ${code}`
+      `🔗 Pairing code generated for ${sessionId}: ${code}`
     );
 
     return {
       code,
       sessionId,
     };
-
   } catch (error) {
+    /*
+     * If pairing fails, do not leave an old code
+     * sitting in the Portal.
+     */
     clearPairingCode(
       sessionId
     );
@@ -1213,7 +1113,6 @@ export async function requestPortalPairing(
     );
 
     throw error;
-
   } finally {
     pairingLocks.delete(
       sessionId

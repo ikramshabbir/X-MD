@@ -38,7 +38,9 @@ command(
     type: "owner",
   },
 
-  async (message, conn) => {
+  async (message, conn, sessionId = "default") => {
+    const autoreactKey = `autoreact:${sessionId}`;
+
     const args = (
       getCommandArgs(message.body, "mode") || ""
     )
@@ -218,7 +220,9 @@ command(
     type: "owner",
   },
 
-  async (message, conn) => {
+  async (message, conn, sessionId = "default") => {
+    const autoreactKey = `autoreact:${sessionId}`;
+
     const args = (
       getCommandArgs(message.body, "autoreact") || ""
     )
@@ -227,7 +231,7 @@ command(
 
     /* Show current status */
     if (!args) {
-      const current = await kvGet("autoreact");
+      const current = await kvGet(autoreactKey);
 
       const status =
         current === false
@@ -248,7 +252,7 @@ command(
 
     /* Turn ON */
     if (args === "on") {
-      await kvSet("autoreact", true);
+      await kvSet(autoreactKey, true);
 
       await replyOk(
         conn,
@@ -262,7 +266,7 @@ command(
 
     /* Turn OFF */
     if (args === "off") {
-      await kvSet("autoreact", false);
+      await kvSet(autoreactKey, false);
 
       await replyOk(
         conn,

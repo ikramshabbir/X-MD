@@ -2159,7 +2159,8 @@ function shouldAutoReact(message) {
 
 async function handleAutoReaction(
   message,
-  conn
+  conn,
+  sessionId = "default"
 ) {
   try {
     if (
@@ -2172,7 +2173,7 @@ async function handleAutoReaction(
 
     const enabled =
       await kvGet(
-        AUTOREACT_KEY
+        `${AUTOREACT_KEY}:${sessionId}`
       );
 
     /*
@@ -2291,6 +2292,9 @@ export async function messageHandler(
   const conn =
     params?.conn;
 
+  const sessionId =
+    params?.sessionId || "default";
+
   try {
 
     /* =====================================================
@@ -2329,7 +2333,8 @@ export async function messageHandler(
 
     await handleAutoReaction(
       message,
-      conn
+      conn,
+      sessionId
     );
 
     /* =====================================================
@@ -2792,7 +2797,8 @@ export async function messageHandler(
 
     await command.function(
       message,
-      conn
+      conn,
+      sessionId
     );
 
     console.log(

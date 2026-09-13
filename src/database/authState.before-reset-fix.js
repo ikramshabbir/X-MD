@@ -306,51 +306,53 @@ export async function resetMultiDbAuthState(
     normalizeSessionId(sessionId);
 
   try {
-    /*
-     * Reset the backend if it is currently
-     * initialized in memory.
-     */
-    if (sessionPromises.has(normalized)) {
+    if (
+      !sessionPromises.has(normalized)
+    ) {
+      /*
+       * Nothing initialized yet.
+       */
+      return;
+    }
+
+    const backend =
+      await sessionPromises.get(
+        normalized
+      );
+
+    if (
+      typeof backend?.clearAuthState ===
+      "function"
+    ) {
+      await backend.clearAuthState();
+    }
+
+    if (
+      typeof backend?.close ===
+      "function"
+    ) {
       try {
-        const backend =
-          await sessionPromises.get(
-            normalized
-          );
-
-        if (
-          typeof backend?.clearAuthState ===
-          "function"
-        ) {
-          await backend.clearAuthState();
-        }
-
-        if (
-          typeof backend?.close ===
-          "function"
-        ) {
-          try {
-            await backend.close();
-          } catch (err) {
-            console.warn(
-              `[auth:${normalized}] close warning:`,
-              err?.message || err
-            );
-          }
-        }
+        await backend.close();
       } catch (err) {
-        console.error(
-          `[auth:${normalized}] backend reset error:`,
+        console.warn(
+          `[auth:${normalized}] close warning:`,
           err?.message || err
         );
       }
     }
+  } catch (err) {
+    console.error(
+      `[auth:${normalized}] reset error:`,
+      err?.message || err
+    );
   } finally {
-    /*
-     * Always remove in-memory references,
-     * even if the backend was not initialized.
-     */
-    activeBackends.delete(normalized);
-    sessionPromises.delete(normalized);
+    activeBackends.delete(
+      normalized
+    );
+
+    sessionPromises.delete(
+      normalized
+    );
   }
 
   console.log(
