@@ -416,7 +416,7 @@ function sortCommands(list, type) {
 /*
  * Build final menu text
  */
-async function buildMenuText() {
+async function buildMenuText(showDescriptions = true) {
   const cmds = await getMenuData();
 
   const byType = new Map();
@@ -533,7 +533,7 @@ async function buildMenuText() {
       const desc =
         commandDescription(cmd);
 
-      if (desc) {
+      if (showDescriptions && desc) {
         text +=
           `*┋ ⬡ ${icon} ${usage}* — ${desc}\n`;
       } else {
@@ -567,11 +567,11 @@ async function buildMenuText() {
 /*
  * Send menu
  */
-async function sendMenu(message, conn) {
+async function sendMenu(message, conn, showDescriptions = true) {
   await reply(
     conn,
     message,
-    await buildMenuText()
+    await buildMenuText(showDescriptions)
   );
 }
 
@@ -585,7 +585,9 @@ command(
     desc: "Show all commands",
     type: "misc",
   },
-  sendMenu
+  async (message, conn) => {
+    await sendMenu(message, conn, false);
+  }
 );
 
 /*
@@ -620,7 +622,8 @@ command(
     if (!args) {
       await sendMenu(
         message,
-        conn
+        conn,
+        true
       );
       return;
     }
