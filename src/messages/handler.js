@@ -146,1455 +146,181 @@ function normalizeReactionText(text = "") {
  * --------------------------------------------------------- */
 
 const REACTION_CATEGORIES = {
-
   greeting: {
     phrases: [
-      "assalam o alaikum",
-      "assalamualaikum",
-      "salam o alaikum",
-      "salam",
-      "aoa",
-      "hello",
-      "hi bro",
-      "hi",
-      "hey",
-      "hey bro",
-      "good morning",
-      "good evening",
-      "good afternoon",
-      "good night",
-      "see you",
-      "bye bye",
-
-      "السلام عليكم",
-      "السلام علیکم",
-      "وعليكم السلام",
-      "وعلیکم السلام",
-      "مرحبا",
-      "اهلا",
-      "أهلا",
-      "اهلا وسهلا",
-      "أهلا وسهلا",
-      "صباح الخير",
-      "مساء الخير",
-      "تصبح على خير",
-      "مع السلامة",
+      "hello", "hi", "hey",
+      "good morning", "good afternoon", "good evening",
+      "salam", "aoa", "assalamualaikum", "hy",
+      "السلام علیکم", "سلام", "صبح بخیر"
     ],
-    words: [
-      "hello",
-      "hi",
-      "hey",
-      "salam",
-      "aoa",
-      "مرحبا",
-      "اهلا",
-      "أهلا",
-      "سلام",
-    ],
-    emojis: ["👋", "😊", "🙌"]
-  },
-
-  love: {
-    phrases: [
-      "i love you",
-      "love you",
-      "love u",
-      "i like you",
-      "i miss you",
-      "miss you",
-      "miss u",
-      "my love",
-      "meri jaan",
-      "mera pyar",
-      "meri mohabbat",
-      "mohabbat hai",
-      "pyar karta",
-      "pyar karti",
-      "dil se",
-      "احبك",
-      "أحبك",
-      "أحبك جدا",
-      "احبك جدا",
-      "احب",
-      "أحب",
-      "حبيبي",
-      "حبيبتي",
-      "حبي",
-      "يا حبيبي",
-      "يا حبيبتي",
-      "حب",
-      "عشق",
-      "محبة",
-    ],
-    words: [
-      "love",
-      "loving",
-      "pyar",
-      "pyaar",
-      "mohabbat",
-      "ishq",
-      "jaan",
-      "baby",
-      "darling",
-      "honey",
-      "حبيبي",
-      "حبيبتي",
-      "حبي",
-      "حب",
-      "عشق",
-      "أحبك",
-      "احبك",
-    ],
-    emojis: ["❤️", "🥰", "😍", "💕", "😘"]
-  },
-
-  cute: {
-    phrases: [
-      "so cute",
-      "very cute",
-      "kitna cute",
-      "bohat cute",
-      "bohot cute",
-      "how cute",
-      "how beautiful",
-      "how handsome",
-      "ما اجمل",
-      "ما أجمل",
-      "جميل جدا",
-      "جميلة جدا",
-      "رائع جدا",
-      "رائعة جدا",
-    ],
-    words: [
-      "cute",
-      "beautiful",
-      "handsome",
-      "pretty",
-      "sweet",
-      "lovely",
-      "adorable",
-      "khubsurat",
-      "khoobsurat",
-      "pyara",
-      "pyari",
-      "jamil",
-      "jamila",
-      "جميل",
-      "جميلة",
-      "لطيف",
-      "لطيفة",
-      "رائع",
-      "رائعة",
-      "وسيم",
-      "حلو",
-      "حلوة",
-    ],
-    emojis: ["😍", "🥰", "✨", "❤️"]
+    emojis: ["♥️", "👍", "🌹", "💝", "😊", "🤝"]
   },
 
   funny: {
     phrases: [
-      "hahaha",
-      "haha",
-      "lol",
-      "lmao",
-      "rofl",
-      "cant stop laughing",
-      "cannot stop laughing",
-      "hasna nahi ruk raha",
-      "hansi nahi ruk rahi",
-      "bohat funny",
-      "bahut funny",
-      "kya joke hai",
-      "هههه",
-      "ههههه",
-      "هههههههه",
-      "مضحك جدا",
-      "مضحكة جدا",
+      "haha", "hahaha", "lol", "funny", "joke", "hilarious",
+      "mazaq", "maza aa gaya",
+      "ہاہاہا", "مذاق", "مزاح"
     ],
-    words: [
-      "lol",
-      "lmao",
-      "haha",
-      "hahaha",
-      "funny",
-      "joke",
-      "mazaq",
-      "mazak",
-      "hansi",
-      "hasna",
-      "comedy",
-      "مضحك",
-      "مضحكة",
-      "ضحك",
-      "نكتة",
-      "هههه",
-    ],
-    emojis: ["😂", "🤣", "😆", "😭"]
+    emojis: ["🫂", "✨", "🙂", "👍", "💯", "🤍"]
   },
 
-  happiness: {
+  amazing: {
     phrases: [
-      "i am happy",
-      "im happy",
-      "so happy",
-      "very happy",
-      "feeling happy",
-      "today is a good day",
-      "aj bohat khush",
-      "aaj bohat khush",
-      "dil khush ho gaya",
-      "bohat acha laga",
-      "alhamdulillah",
-      "الحمد لله",
-      "الحمدلله",
-      "أنا سعيد",
-      "انا سعيد",
-      "انا سعيدة",
-      "أنا سعيدة",
+      "awesome", "amazing", "excellent", "fantastic", "great", "wonderful",
+      "zabardast", "kamaal", "shandar", "lajawab",
+      "زبردست", "کمال", "شاندار", "لاجواب"
     ],
-    words: [
-      "happy",
-      "happiness",
-      "khush",
-      "khushi",
-      "khushiyan",
-      "mazay",
-      "great",
-      "awesome",
-      "amazing",
-      "perfect",
-      "sukoon",
-      "satisfied",
-      "سعيد",
-      "سعيدة",
-      "فرح",
-      "فرحان",
-      "فرحانة",
-      "سعادة",
-      "مبسوط",
-      "مبسوطة",
-      "سرور",
-    ],
-    emojis: ["😊", "😄", "😁", "🥰", "❤️"]
+    emojis: ["💝", "😇", "🙂", "👍", "🥀", "🌟"]
   },
 
-  sad: {
+  agree: {
     phrases: [
-      "i am sad",
-      "im sad",
-      "feeling sad",
-      "so sad",
-      "very sad",
-      "feeling bad",
-      "feel bad",
-      "mood off",
-      "my mood is off",
-      "dil udaas hai",
-      "bohat udaas",
-      "aj mood off",
-      "aaj mood off",
-      "ro raha hu",
-      "ro rahi hu",
-      "i am crying",
-      "im crying",
-      "أنا حزين",
-      "انا حزين",
-      "أنا حزينة",
-      "انا حزينة",
-      "حزين جدا",
-      "حزينة جدا",
+      "i agree", "exactly", "absolutely", "true", "correct", "right",
+      "bilkul", "sahi kaha", "theek kaha",
+      "بالکل", "صحیح کہا", "درست"
     ],
-    words: [
-      "sad",
-      "sadness",
-      "cry",
-      "crying",
-      "tears",
-      "udaas",
-      "udas",
-      "gham",
-      "dard",
-      "dukhi",
-      "rona",
-      "roona",
-      "zakhm",
-      "حزين",
-      "حزينة",
-      "حزن",
-      "يبكي",
-      "بكاء",
-      "زعلان",
-      "زعلانة",
-    ],
-    emojis: ["😔", "😢", "🥺", "💔"]
+    emojis: ["💯", "👍", "💖", "🙂", "🤝", "🎀"]
   },
 
-  heartbreak: {
+  love: {
     phrases: [
-      "heart broken",
-      "heartbreak",
-      "broken heart",
-      "breakup ho gaya",
-      "mera breakup ho gaya",
-      "meri breakup ho gayi",
-      "she left me",
-      "he left me",
-      "they left me",
-      "cheat kiya",
-      "dhoka mila",
-      "dil toot gaya",
-      "dil tor diya",
-      "mohabbat haar gaya",
-      "قلبي مكسور",
-      "قلب مكسور",
-      "انفصال",
-      "خيانة",
-      "فراق",
-      "كسر قلبي",
+      "love", "i love you", "lovely", "cute", "miss you",
+      "pyar", "mohabbat", "jaan", "bohat pyara",
+      "پیار", "محبت", "جان", "بہت پیارا"
     ],
-    words: [
-      "breakup",
-      "heartbreak",
-      "broken",
-      "betrayal",
-      "cheated",
-      "dhoka",
-      "dhokha",
-      "bewafa",
-      "bewafai",
-      "judai",
-      "firaq",
-      "heartbroken",
-      "فراق",
-      "خيانة",
-      "انفصال",
-      "مكسور",
-    ],
-    emojis: ["💔", "😢", "🥺", "😭"]
-  },
-
-  angry: {
-    phrases: [
-      "i am angry",
-      "im angry",
-      "very angry",
-      "so angry",
-      "getting angry",
-      "dont make me angry",
-      "gussa aa raha",
-      "bohat gussa",
-      "mujhe gussa aa raha",
-      "ghussa aa raha",
-      "ghussa",
-      "غاضب جدا",
-      "غاضبة جدا",
-      "انا غاضب",
-      "أنا غاضب",
-      "انا غاضبة",
-      "أنا غاضبة",
-    ],
-    words: [
-      "angry",
-      "anger",
-      "mad",
-      "furious",
-      "gussa",
-      "ghussa",
-      "naraz",
-      "naraaz",
-      "pagal",
-      "irritated",
-      "annoyed",
-      "غاضب",
-      "غاضبة",
-      "غضب",
-      "عصبي",
-      "عصبية",
-    ],
-    emojis: ["😡", "😤", "🤬", "💢"]
-  },
-
-  surprise: {
-    phrases: [
-      "oh my god",
-      "omg",
-      "no way",
-      "really",
-      "are you serious",
-      "seriously",
-      "what the hell",
-      "cant believe",
-      "cannot believe",
-      "ye kya ho gaya",
-      "sach mein",
-      "sachi",
-      "yaar kya",
-      "يا إلهي",
-      "يا الهي",
-      "مستحيل",
-      "حقا",
-      "حقًا",
-      "صدمة",
-      "مفاجأة",
-    ],
-    words: [
-      "omg",
-      "wow",
-      "really",
-      "serious",
-      "seriously",
-      "surprise",
-      "shocked",
-      "shock",
-      "unbelievable",
-      "hairan",
-      "hairaan",
-      "shock",
-      "مستحيل",
-      "صدمة",
-      "مفاجأة",
-      "حقا",
-      "حقًا",
-    ],
-    emojis: ["😳", "😱", "🤯", "😮", "👀"]
-  },
-
-  question: {
-    phrases: [
-      "what is this",
-      "what happened",
-      "why did you",
-      "how did you",
-      "what do you mean",
-      "i dont understand",
-      "i don't understand",
-      "samajh nahi aa rahi",
-      "samajh nahi aya",
-      "kya matlab",
-      "kyun",
-      "kaise",
-      "kahan",
-      "kab",
-      "mujhe samajh nahi",
-      "ماذا",
-      "لماذا",
-      "كيف",
-      "أين",
-      "متى",
-      "من",
-      "هل",
-      "ما هذا",
-      "ما معنى",
-    ],
-    words: [
-      "what",
-      "why",
-      "how",
-      "where",
-      "when",
-      "who",
-      "which",
-      "question",
-      "kya",
-      "kyun",
-      "kyu",
-      "kaise",
-      "kese",
-      "kahan",
-      "kab",
-      "kon",
-      "kis",
-      "matalab",
-      "matlab",
-      "mujhe",
-      "ماذا",
-      "لماذا",
-      "كيف",
-      "أين",
-      "متى",
-      "من",
-      "هل",
-    ],
-    emojis: ["🤔", "🧐", "❓", "👀"]
-  },
-
-  agreement: {
-    phrases: [
-      "yes",
-      "yes bro",
-      "yes exactly",
-      "you are right",
-      "you're right",
-      "i agree",
-      "agreed",
-      "bilkul",
-      "bilkul sahi",
-      "theek hai",
-      "thik hai",
-      "sahi hai",
-      "han",
-      "haan",
-      "jee",
-      "ji",
-      "zaroor",
-      "acha",
-      "accha",
-      "inshallah",
-      "in sha allah",
-      "إن شاء الله",
-      "ان شاء الله",
-      "نعم",
-      "صحيح",
-      "تمام",
-      "موافق",
-      "موافقة",
-      "حسنا",
-      "حسنًا",
-      "أكيد",
-      "بالتأكيد",
-    ],
-    words: [
-      "yes",
-      "agree",
-      "agreed",
-      "exactly",
-      "correct",
-      "right",
-      "bilkul",
-      "haan",
-      "han",
-      "jee",
-      "sahi",
-      "theek",
-      "thik",
-      "zaroor",
-      "نعم",
-      "صحيح",
-      "تمام",
-      "موافق",
-      "أكيد",
-    ],
-    emojis: ["👍", "✅", "💯", "🙌"]
-  },
-
-  disagreement: {
-    phrases: [
-      "no",
-      "no bro",
-      "not at all",
-      "i disagree",
-      "you are wrong",
-      "you're wrong",
-      "bilkul nahi",
-      "nahi",
-      "nahin",
-      "ye galat hai",
-      "ghalat hai",
-      "aisa nahi",
-      "لا",
-      "ليس كذلك",
-      "لا أوافق",
-      "خطأ",
-      "غلط",
-      "مستحيل",
-    ],
-    words: [
-      "no",
-      "wrong",
-      "false",
-      "never",
-      "disagree",
-      "nahi",
-      "nahin",
-      "galat",
-      "ghalat",
-      "لا",
-      "خطأ",
-      "غلط",
-    ],
-    emojis: ["❌", "👎", "🙅"]
+    emojis: ["♥️", "👍", "💌", "😍", "💖", "✨"]
   },
 
   thanks: {
     phrases: [
-      "thank you",
-      "thanks",
-      "thanks bro",
-      "thank u",
-      "thx",
-      "bohat shukriya",
-      "bahut shukriya",
-      "shukriya",
-      "jazakallah",
-      "jazak allah",
-      "jazakallah khair",
-      "جزاك الله خيرا",
-      "جزاك الله خيرًا",
-      "شكرا",
-      "شكرًا",
-      "شكرا جزيلا",
-      "شكرًا جزيلا",
+      "thanks", "thank you", "many thanks", "appreciate it",
+      "shukriya", "bohat shukriya",
+      "شکریہ", "بہت شکریہ", "مہربانی"
     ],
-    words: [
-      "thanks",
-      "thank",
-      "shukriya",
-      "shukria",
-      "jazakallah",
-      "gratitude",
-      "grateful",
-      "شكرا",
-      "شكرًا",
-      "ممتن",
-      "ممتنة",
-    ],
-    emojis: ["🙏", "❤️", "😊"]
+    emojis: ["♥️", "🫶", "😇", "🌹", "👍", "🤍", "🤝"]
   },
 
-  apology: {
+  islamic: {
     phrases: [
-      "i am sorry",
-      "im sorry",
-      "sorry bro",
-      "sorry yaar",
-      "my mistake",
-      "meri ghalti",
-      "meri galti",
-      "maaf karna",
-      "mujhe maaf karo",
-      "excuse me",
-      "i apologize",
-      "أعتذر",
-      "اعتذر",
-      "آسف",
-      "اسف",
-      "آسفة",
-      "اسفة",
-      "سامحني",
-      "سامحيني",
-      "عفوا",
-      "عفوًا",
+      "ameen", "inshaAllah", "inshallah", "Allah bless you", "pray for me",
+      "mashallah", "alhamdulillah", "dua", "Allah",
+      "اللّٰه", "محمد", "ان شاء اللّٰه", "ماشاء اللّٰه",
+      "الحمدللہ", "دعا", "آمین"
     ],
-    words: [
-      "sorry",
-      "apology",
-      "apologize",
-      "mistake",
-      "maaf",
-      "maafi",
-      "ghalti",
-      "galti",
-      "آسف",
-      "آسفة",
-      "اعتذر",
-      "أعتذر",
-      "سامحني",
+    emojis: ["👍", "♥️", "🌹", "😇", "💞", "🫶", "💝"]
+  },
+
+  sad: {
+    phrases: [
+      "sad", "upset", "sorry", "heartbreaking", "i miss you",
+      "dukhi", "afsos", "dukh", "rona",
+      "اداس", "دکھی", "افسوس", "دکھ", "غم"
     ],
-    emojis: ["🙏", "🥺", "😔"]
+    emojis: ["🖤", "🥹", "🥀", "🙂", "🍂", "♥️"]
+  },
+
+  surprise: {
+    phrases: [
+      "wow", "omg", "really", "seriously", "unbelievable",
+      "sachi", "waqai", "kya baat hai",
+      "واقعی", "سچ میں", "کیا بات ہے"
+    ],
+    emojis: ["💖", "🥹", "👍", "🙃", "✨", "💯", "👌"]
   },
 
   congratulations: {
     phrases: [
-      "congratulations",
-      "congrats",
-      "congratulation bro",
-      "well done",
-      "mubarak ho",
-      "bohat mubarak",
-      "dher sari mubarak",
-      "shabash",
-      "you did it",
-      "you made it",
-      "alf mabrook",
-      "مبروك",
-      "ألف مبروك",
-      "الف مبروك",
-      "تهانينا",
-      "أحسنت",
-      "احسنت",
+      "congratulations", "congrats", "well done", "happy for you",
+      "mubarak", "mubarak ho",
+      "مبارک", "مبارک ہو", "بہت بہت مبارک"
     ],
-    words: [
-      "congratulations",
-      "congrats",
-      "mubarak",
-      "mubarakbad",
-      "shabash",
-      "well",
-      "done",
-      "winner",
-      "مبروك",
-      "تهانينا",
-      "أحسنت",
-    ],
-    emojis: ["🎉", "🥳", "👏", "🎊", "🔥"]
+    emojis: ["🎉", "♥️", "🥳", "💝", "😇", "🌹", "👍"]
   },
 
-  birthday: {
+  goodNight: {
     phrases: [
-      "happy birthday",
-      "many many happy returns",
-      "birthday mubarak",
-      "janamdin mubarak",
-      "salgirah mubarak",
-      "سالگرہ مبارک",
-      "عيد ميلاد سعيد",
-      "عيد ميلاد",
-      "كل عام وانت بخير",
-      "كل عام وأنت بخير",
-      "كل عام وانتي بخير",
-      "كل عام وأنتِ بخير",
+      "good night", "sleep well", "sweet dreams",
+      "shab bakhair",
+      "شب بخیر"
     ],
-    words: [
-      "birthday",
-      "janamdin",
-      "salgirah",
-      "ميلاد",
-      "عيد ميلاد",
-    ],
-    emojis: ["🎂", "🎉", "🥳", "🎈"]
+    emojis: ["💖", "👍", "😊", "♥️", "😴", "🩵"]
   },
 
-  prayer: {
+  goodMorning: {
     phrases: [
-      "alhamdulillah",
-      "alhamdu lillah",
-      "mashallah",
-      "masha allah",
-      "ma sha allah",
-      "subhanallah",
-      "subhan allah",
-      "inshallah",
-      "in sha allah",
-      "allah kare",
-      "dua karo",
-      "dua karna",
-      "pray for me",
-      "allah bless you",
-      "الحمد لله",
-      "الحمدلله",
-      "ما شاء الله",
-      "ماشاء الله",
-      "سبحان الله",
-      "إن شاء الله",
-      "ان شاء الله",
-      "آمين",
-      "امين",
-      "دعاء",
-      "أدعو",
+      "good morning", "have a nice day",
+      "subah bakhair",
+      "صبح بخیر"
     ],
-    words: [
-      "alhamdulillah",
-      "mashallah",
-      "mashaallah",
-      "subhanallah",
-      "inshallah",
-      "dua",
-      "ameen",
-      "amin",
-      "allah",
-      "bless",
-      "prayer",
-      "الحمد",
-      "ماشاء",
-      "سبحان",
-      "الله",
-      "آمين",
-      "دعاء",
-    ],
-    emojis: ["❤️", "🤲", "✨", "😊"]
+    emojis: ["💖", "🌻", "💦", "♥️", "😊", "🥂", "🤝"]
   },
 
-  fire: {
+  goodbye: {
     phrases: [
-      "on fire",
-      "this is fire",
-      "so good",
-      "too good",
-      "next level",
-      "level up",
-      "kya zabardast",
-      "zabardast hai",
-      "kamal hai",
-      "kamaal hai",
-      "bohat zabardast",
-      "bohot zabardast",
-      "kya scene hai",
-      "أسطوري",
-      "اسطوري",
-      "رهيب",
-      "رهيبة",
-      "خرافي",
-      "خرافية",
+      "bye", "goodbye", "see you", "take care",
+      "allah hafiz", "khuda hafiz", "phir milenge",
+      "اللہ حافظ", "خدا حافظ", "پھر ملیں گے"
     ],
-    words: [
-      "fire",
-      "lit",
-      "awesome",
-      "amazing",
-      "legendary",
-      "epic",
-      "zabardast",
-      "zabardust",
-      "kamal",
-      "kamaal",
-      "mast",
-      "solid",
-      "danger",
-      "أسطوري",
-      "رهيب",
-      "خرافي",
-      "نار",
-    ],
-    emojis: ["🔥", "💯", "🤯", "⚡"]
-  },
-
-  respect: {
-    phrases: [
-      "respect bro",
-      "full respect",
-      "respect for you",
-      "salute bro",
-      "you are a legend",
-      "kya baat hai",
-      "wah ustad",
-      "wah bhai",
-      "izzat hai",
-      "ما شاء الله عليك",
-      "ماشاء الله عليك",
-      "كل الاحترام",
-    ],
-    words: [
-      "respect",
-      "salute",
-      "legend",
-      "ustad",
-      "boss",
-      "king",
-      "queen",
-      "izzat",
-      "محترم",
-      "محترمة",
-      "احترام",
-      "ملك",
-      "ملكة",
-      "بطل",
-      "بطلة",
-    ],
-    emojis: ["🫡", "👏", "👑", "❤️"]
-  },
-
-  food: {
-    phrases: [
-      "i am hungry",
-      "im hungry",
-      "bohat bhook lagi",
-      "bhook lagi hai",
-      "khana kha raha",
-      "khana kha rahi",
-      "lets eat",
-      "let's eat",
-      "what should i eat",
-      "kya khana hai",
-      "mujhe bhook lagi",
-      "جوعان",
-      "جائعة",
-      "أنا جائع",
-      "انا جائع",
-    ],
-    words: [
-      "food",
-      "eat",
-      "eating",
-      "hungry",
-      "pizza",
-      "burger",
-      "biryani",
-      "chicken",
-      "rice",
-      "chai",
-      "tea",
-      "coffee",
-      "khana",
-      "bhook",
-      "nashta",
-      "lunch",
-      "dinner",
-      "breakfast",
-      "طعام",
-      "أكل",
-      "اكل",
-      "جوعان",
-      "جائعة",
-      "قهوة",
-      "شاي",
-    ],
-    emojis: ["🍕", "🍔", "😋", "🍗", "☕"]
-  },
-
-  money: {
-    phrases: [
-      "make money",
-      "earned money",
-      "made money",
-      "paise aa gaye",
-      "paisa mil gaya",
-      "paisa kamaya",
-      "bohat paisa",
-      "maal aa gaya",
-      "الحمد لله رزق",
-    ],
-    words: [
-      "money",
-      "cash",
-      "profit",
-      "salary",
-      "rich",
-      "dollar",
-      "rupee",
-      "rupees",
-      "paisa",
-      "paise",
-      "kamai",
-      "kamaya",
-      "rizq",
-      "maal",
-      "مال",
-      "فلوس",
-      "نقود",
-      "راتب",
-      "ربح",
-      "دولار",
-      "ريال",
-      "دينار",
-      "درهم",
-    ],
-    emojis: ["💰", "💸", "🤑", "💵"]
-  },
-
-  sleep: {
-    phrases: [
-      "good night",
-      "going to sleep",
-      "i am sleepy",
-      "im sleepy",
-      "need sleep",
-      "so tired",
-      "neend aa rahi",
-      "neend aa rhi",
-      "main so raha",
-      "main so rahi",
-      "sona hai",
-      "kal milte hain",
-      "تصبح على خير",
-      "أنا نعسان",
-      "انا نعسان",
-      "أنا نعسانة",
-      "انا نعسانة",
-    ],
-    words: [
-      "sleep",
-      "sleepy",
-      "tired",
-      "rest",
-      "neend",
-      "soja",
-      "sona",
-      "thaka",
-      "thaki",
-      "نوم",
-      "نائم",
-      "نائمة",
-      "نعسان",
-      "نعسانة",
-    ],
-    emojis: ["🌙", "😴", "🥱"]
-  },
-
-  studyWork: {
-    phrases: [
-      "i am studying",
-      "i am working",
-      "going to work",
-      "back to work",
-      "exam tomorrow",
-      "exam hai",
-      "paper hai",
-      "parhai kar raha",
-      "parhai kar rahi",
-      "kaam kar raha",
-      "kaam kar rahi",
-      "office ja raha",
-      "دراسة",
-      "امتحان",
-      "اختبار",
-      "عمل",
-      "وظيفة",
-      "مشروع",
-    ],
-    words: [
-      "study",
-      "studying",
-      "school",
-      "college",
-      "university",
-      "exam",
-      "test",
-      "work",
-      "office",
-      "job",
-      "project",
-      "parhai",
-      "padhai",
-      "kaam",
-      "mashq",
-      "دراسة",
-      "جامعة",
-      "مدرسة",
-      "امتحان",
-      "اختبار",
-      "عمل",
-      "وظيفة",
-      "مكتب",
-      "مشروع",
-    ],
-    emojis: ["📚", "💻", "📝", "💪"]
-  },
-
-  music: {
-    phrases: [
-      "listen to this song",
-      "this song is amazing",
-      "what a song",
-      "my favorite song",
-      "meri favorite song",
-      "kya gana hai",
-      "ye gana suno",
-      "music lover",
-      "اسمع هذه الاغنية",
-      "اسمع هذه الأغنية",
-      "موسيقى جميلة",
-      "أغنية جميلة",
-    ],
-    words: [
-      "music",
-      "song",
-      "singer",
-      "singing",
-      "gana",
-      "gaana",
-      "awaz",
-      "awaaz",
-      "beats",
-      "musiqi",
-      "موسيقى",
-      "أغنية",
-      "اغنية",
-      "مغني",
-      "مغنية",
-      "صوت",
-    ],
-    emojis: ["🎵", "🎶", "🎧", "❤️"]
-  },
-
-  travel: {
-    phrases: [
-      "going on trip",
-      "road trip",
-      "going home",
-      "on my way",
-      "traveling today",
-      "safar par",
-      "safar kar raha",
-      "safar kar rahi",
-      "ghar ja raha",
-      "ghar ja rahi",
-      "سفر",
-      "رحلة",
-      "أنا مسافر",
-      "انا مسافر",
-    ],
-    words: [
-      "travel",
-      "trip",
-      "journey",
-      "flight",
-      "airport",
-      "train",
-      "car",
-      "road",
-      "safar",
-      "musafir",
-      "journey",
-      "سفر",
-      "رحلة",
-      "طائرة",
-      "مطار",
-      "قطار",
-      "سيارة",
-    ],
-    emojis: ["✈️", "🚗", "🌍", "🧳"]
-  },
-
-  weather: {
-    phrases: [
-      "it is raining",
-      "its raining",
-      "today is hot",
-      "today is cold",
-      "bohat garmi",
-      "bohat sardi",
-      "barish ho rahi",
-      "baarish ho rahi",
-      "mausam acha",
-      "mausam kharab",
-      "الجو جميل",
-      "الطقس جميل",
-    ],
-    words: [
-      "weather",
-      "rain",
-      "raining",
-      "sun",
-      "sunny",
-      "cold",
-      "hot",
-      "winter",
-      "summer",
-      "barish",
-      "baarish",
-      "garmi",
-      "sardi",
-      "mausam",
-      "طقس",
-      "مطر",
-      "شمس",
-      "مشمس",
-      "برد",
-      "حر",
-      "شتاء",
-      "صيف",
-    ],
-    emojis: ["🌧️", "☀️", "❄️", "🌤️"]
-  },
-
-  warning: {
-    phrases: [
-      "be careful",
-      "take care",
-      "watch out",
-      "danger ahead",
-      "stay safe",
-      "careful bro",
-      "sambhal kar",
-      "khayal rakhna",
-      "bach ke",
-      "khatra hai",
-      "bohat dangerous",
-      "انتبه",
-      "كن حذرا",
-      "كن حذرًا",
-      "خطر",
-      "خطير",
-      "تحذير",
-    ],
-    words: [
-      "warning",
-      "danger",
-      "dangerous",
-      "careful",
-      "alert",
-      "problem",
-      "risk",
-      "sambhal",
-      "khatra",
-      "khatarnaak",
-      "masla",
-      "تحذير",
-      "خطر",
-      "خطير",
-      "تنبيه",
-      "مشكلة",
-    ],
-    emojis: ["⚠️", "🚨", "😨"]
-  },
-
-  compliment: {
-    phrases: [
-      "you are amazing",
-      "you are awesome",
-      "great job",
-      "good job",
-      "well done",
-      "nice work",
-      "bohat acha",
-      "bohat pyara",
-      "kya baat hai",
-      "kamaal kar diya",
-      "ما شاء الله عليك",
-      "أنت رائع",
-      "أنت رائعة",
-      "عمل رائع",
-    ],
-    words: [
-      "amazing",
-      "awesome",
-      "great",
-      "excellent",
-      "perfect",
-      "nice",
-      "good",
-      "smart",
-      "brilliant",
-      "acha",
-      "acha",
-      "pyara",
-      "pyari",
-      "zabardast",
-      "kamaal",
-      "ممتاز",
-      "رائع",
-      "رائعة",
-      "ذكي",
-      "ذكية",
-    ],
-    emojis: ["👏", "😍", "🔥", "✨", "💯"]
-  },
-
-  celebration: {
-    phrases: [
-      "lets celebrate",
-      "let's celebrate",
-      "party time",
-      "celebration time",
-      "aaj party",
-      "party hai",
-      "khushi ka din",
-      "حفلة",
-      "احتفال",
-      "يوم سعيد",
-    ],
-    words: [
-      "party",
-      "celebrate",
-      "celebration",
-      "festival",
-      "eid",
-      "party",
-      "khushi",
-      "jashan",
-      "حفلة",
-      "احتفال",
-      "عيد",
-      "فرح",
-    ],
-    emojis: ["🎉", "🥳", "🎊", "🕺"]
-  },
-
-  goodLuck: {
-    phrases: [
-      "good luck",
-      "best of luck",
-      "all the best",
-      "you can do it",
-      "inshallah kamyab",
-      "allah kamyab kare",
-      "dua hai kamyab ho",
-      "best wishes",
-      "حظا سعيدا",
-      "حظًا سعيدًا",
-      "بالتوفيق",
-      "موفق",
-      "موفقة",
-    ],
-    words: [
-      "luck",
-      "success",
-      "kamyabi",
-      "kamyab",
-      "dua",
-      "wishes",
-      "taufiq",
-      "توفيق",
-      "بالتوفيق",
-      "موفق",
-      "موفقة",
-      "نجاح",
-    ],
-    emojis: ["🤞", "🍀", "❤️", "✨"]
-  },
-
-  gaming: {
-    phrases: [
-      "lets play",
-      "let's play",
-      "game time",
-      "gaming time",
-      "gg",
-      "gg bro",
-      "good game",
-      "game khelte hain",
-      "game khelen",
-      "match start",
-      "مباراة",
-      "لعبة",
-    ],
-    words: [
-      "game",
-      "gaming",
-      "gamer",
-      "player",
-      "match",
-      "win",
-      "play",
-      "khel",
-      "gameplay",
-      "لعبة",
-      "ألعاب",
-      "العاب",
-      "لاعب",
-      "مباراة",
-    ],
-    emojis: ["🎮", "🔥", "🏆", "😎"]
-  },
-
-  victory: {
-    phrases: [
-      "we won",
-      "i won",
-      "we did it",
-      "victory",
-      "mission complete",
-      "mission accomplished",
-      "jeet gaye",
-      "jeet gaya",
-      "jeet gayi",
-      "fatah ho gayi",
-      "hum jeet gaye",
-      "انتصرنا",
-      "فوز",
-      "انتصار",
-      "نجحنا",
-    ],
-    words: [
-      "victory",
-      "winner",
-      "won",
-      "win",
-      "champion",
-      "championship",
-      "jeet",
-      "fateh",
-      "kamyabi",
-      "fuz",
-      "فوز",
-      "فائز",
-      "انتصار",
-      "بطل",
-      "بطولة",
-      "نجاح",
-    ],
-    emojis: ["🏆", "🥇", "🎉", "🔥", "💯"]
-  },
-
-  flirty: {
-    phrases: [
-      "you look beautiful",
-      "you look cute",
-      "you are mine",
-      "miss me",
-      "thinking about you",
-      "tum bohat cute ho",
-      "tum bohat pyari ho",
-      "meri jaan",
-      "jaaneman",
-      "جان قلبي",
-      "يا عمري",
-      "أحبك",
-      "أنت جميلة",
-      "أنت جميل",
-    ],
-    words: [
-      "flirt",
-      "flirty",
-      "crush",
-      "jaan",
-      "jaaneman",
-      "baby",
-      "babe",
-      "cutie",
-      "hottie",
-      "عمري",
-      "قلبي",
-      "حبيبي",
-      "حبيبتي",
-    ],
-    emojis: ["🥰", "😘", "😍", "❤️", "😏"]
-  },
-
+    emojis: ["👍", "🌹", "🫶", "❤️", "🤲", "🥹"]
+  }
 };
 
 /* =========================================================
- * GENERIC FALLBACKS
+ * EXACT FALLBACK POOLS
  * ========================================================= */
 
-const GENERIC_REACTIONS = [
-  "👍",
-  "❤️",
-  "😊",
-  "😂",
-  "🔥",
-  "✨",
-  "🙌",
-  "💯",
-  "😎",
+const GENERAL_REACTIONS = [
+  "♥️", "✨", "🌹", "🥀", "🍃", "💕", "💯", "🤍",
+  "💝", "💖", "🩵", "💞", "🤎", "🦋", "💙", "🎀",
+  "💌", "💚", "💗", "🌻", "💓", "🍂", "💛", "👍",
+  "❣️", "🫶", "🧡", "🫰", "💟", "💜", "😇", "❤️"
 ];
 
-const MEDIA_REACTIONS = {
-  sticker: [
-    "😂",
-    "🤣",
-    "😍",
-    "❤️",
-    "🔥",
-    "😎",
-    "🥰",
-  ],
+const MEDIA_REACTIONS = [
+  "♥️", "👍", "⭐", "🩵", "💥", "🎁", "💝", "🔥",
+  "💖", "🎉", "💙", "💜", "🤎", "🤍", "🩷", "💫",
+  "💗", "💞", "🦅", "💌", "💟", "😍", "💦", "❤️",
+  "🫅", "🧡", "❄️", "💛", "🪽", "💚", "🙂", "🌟",
+  "🦋", "🍻", "💓", "🥂", "💕", "☕", "🎀", "🧔",
+  "🎊", "🍹", "💸", "👑", "✨", "🌻", "🍂", "🫶",
+  "🍷", "🫰", "😇", "🍃", "❣️"
+];
 
-  audio: [
-    "🎧",
-    "❤️",
-    "🔥",
-    "🎵",
-    "😍",
-    "👏",
-  ],
+const EMOJI_FAMILIES = [
+  {
+    emojis: [
+      "🤣", "😂", "🤭", "😆", "😄", "😅", "😹", "😛",
+      "😜", "🤡", "🤪", "😝", "😀", "👻", "😃", "🤥", "😁"
+    ],
+    reaction: "😁"
+  },
 
-  image: [
-    "😍",
-    "🔥",
-    "❤️",
-    "✨",
-    "👏",
-    "👀",
-  ],
+  {
+    emojis: [
+      "😔", "☹️", "😞", "😩", "😢", "💔", "😿", "😭",
+      "😪", "😥", "😕", "😓", "🥺", "😫", "🤕", "😣",
+      "🫥", "😐", "😑", "🙎", "😖", "🙍", "😦"
+    ],
+    reaction: "🥺"
+  },
 
-  video: [
-    "🔥",
-    "😂",
-    "😍",
-    "👏",
-    "🎬",
-    "👀",
-  ],
+  {
+    emojis: [
+      "🕌", "🕋", "☪️", "👳", "🛐", "🧕", "🤲", "📿"
+    ],
+    reactions: ["🫶", "♥️", "🌹"]
+  },
 
-  document: [
-    "👍",
-    "📄",
-    "👀",
-    "💯",
-  ],
-};
+  {
+    emojis: [
+      "😍", "💕", "♥️", "💑", "💘", "💖", "😘", "❤️",
+      "🥰", "💗", "💝", "❤️‍🩹", "💟", "💞", "💜",
+      "💓", "😚", "💋", "❣️"
+    ],
+    reactions: ["😍", "💞", "♥️"]
+  }
+];
 
 /* =========================================================
  * MESSAGE TEXT EXTRACTION
@@ -1722,202 +448,36 @@ function getMessageType(message) {
 }
 
 /* =========================================================
- * NEGATION
+ * AUTO REACTION MATCH HELPERS
  * ========================================================= */
 
-const NEGATION_WORDS = [
-  "not",
-  "never",
-  "dont",
-  "don't",
-  "doesnt",
-  "doesn't",
-  "didnt",
-  "didn't",
-  "cant",
-  "can't",
-  "cannot",
-  "wont",
-  "won't",
-  "without",
-
-  "nahi",
-  "nahin",
-  "nai",
-  "mat",
-  "bilkul nahi",
-  "bilkul nahin",
-
-  "نہیں",
-  "ليس",
-  "لا",
-  "لم",
-  "لن",
-];
-
-function hasNegationNear(
-  text,
-  index
-) {
-  const start =
-    Math.max(0, index - 45);
-
-  const before =
-    text.slice(
-      start,
-      index
-    );
-
-  return NEGATION_WORDS.some(
-    (word) => {
-      const escaped =
-        word.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
-
-      return new RegExp(
-        `(?:^|\\s)${escaped}(?:\\s|$)`,
-        "i"
-      ).test(before);
-    }
-  );
-}
-
-/* =========================================================
- * MATCH HELPERS
- * ========================================================= */
-
-function countPhraseMatches(
-  text,
-  phrases
-) {
-  let score = 0;
+function reactionPhraseMatches(text, phrases = []) {
+  let count = 0;
 
   for (const phrase of phrases) {
-    const p =
-      normalizeReactionText(
-        phrase
-      );
+    const p = normalizeReactionText(phrase);
+    if (!p) continue;
 
-    if (!p) {
-      continue;
-    }
-
-    let index = text.indexOf(p);
-
-    while (index !== -1) {
-      if (
-        !hasNegationNear(
-          text,
-          index
-        )
-      ) {
-        score +=
-          p.includes(" ")
-            ? 5
-            : 2;
-      }
-
-      index =
-        text.indexOf(
-          p,
-          index + p.length
-        );
+    if (text.includes(p)) {
+      count++;
     }
   }
 
-  return score;
+  return count;
 }
 
-function countWordMatches(
-  text,
-  words
-) {
-  let score = 0;
-
-  for (const word of words) {
-    const w =
-      normalizeReactionText(
-        word
-      );
-
-    if (!w) {
-      continue;
-    }
-
-    let index = text.indexOf(w);
-
-    while (index !== -1) {
-      if (
-        !hasNegationNear(
-          text,
-          index
-        )
-      ) {
-        score += 1;
-      }
-
-      index =
-        text.indexOf(
-          w,
-          index + w.length
-        );
+function reactionEmojiFamily(text) {
+  for (const family of EMOJI_FAMILIES) {
+    if (
+      family.emojis.some((emoji) =>
+        text.includes(emoji)
+      )
+    ) {
+      return family;
     }
   }
 
-  return score;
-}
-
-/* =========================================================
- * EMOJI AWARENESS
- * ========================================================= */
-
-function emojiBonus(text) {
-  const bonuses = [
-    {
-      emojis: ["😂", "🤣", "😆", "😭"],
-      category: "funny",
-      score: 8,
-    },
-    {
-      emojis: ["❤️", "💕", "💖", "💗", "🥰", "😍"],
-      category: "love",
-      score: 8,
-    },
-    {
-      emojis: ["😢", "😔", "🥺", "💔"],
-      category: "sad",
-      score: 8,
-    },
-    {
-      emojis: ["😡", "🤬", "😤"],
-      category: "angry",
-      score: 8,
-    },
-    {
-      emojis: ["🔥", "💯", "⚡"],
-      category: "fire",
-      score: 7,
-    },
-    {
-      emojis: ["🎉", "🥳", "🎊"],
-      category: "celebration",
-      score: 7,
-    },
-    {
-      emojis: ["🙏", "🤲"],
-      category: "thanks",
-      score: 5,
-    },
-    {
-      emojis: ["❓", "🤔", "🧐"],
-      category: "question",
-      score: 6,
-    },
-  ];
-
-  return bonuses;
+  return null;
 }
 
 /* =========================================================
@@ -1925,18 +485,12 @@ function emojiBonus(text) {
  * ========================================================= */
 
 function randomItem(array) {
-  if (
-    !Array.isArray(array) ||
-    array.length === 0
-  ) {
+  if (!Array.isArray(array) || array.length === 0) {
     return null;
   }
 
   return array[
-    Math.floor(
-      Math.random() *
-      array.length
-    )
+    Math.floor(Math.random() * array.length)
   ];
 }
 
@@ -1944,147 +498,78 @@ function randomItem(array) {
  * SMART REACTION
  * ========================================================= */
 
-function getAutoReaction(
-  message
-) {
-  const text =
-    normalizeReactionText(
-      getReactionText(message)
-    );
+function getAutoReaction(message) {
+  const text = normalizeReactionText(
+    getReactionText(message)
+  );
 
-  const type =
-    getMessageType(message);
+  const type = getMessageType(message);
 
-  /* -------------------------------------------------------
-   * Media without meaningful text
-   * ------------------------------------------------------- */
-
+  /*
+   * MEDIA WITHOUT CAPTION
+   *
+   * image / video / sticker / audio / voice
+   * always use MEDIA_REACTIONS.
+   */
   if (!text) {
-    return randomItem(
-      MEDIA_REACTIONS[type] ||
-      GENERIC_REACTIONS
-    );
+    if (
+      type === "image" ||
+      type === "video" ||
+      type === "sticker" ||
+      type === "audio"
+    ) {
+      return randomItem(MEDIA_REACTIONS);
+    }
+
+    return randomItem(GENERAL_REACTIONS);
   }
 
-  /* -------------------------------------------------------
-   * Score every category
-   * ------------------------------------------------------- */
-
-  const scores = [];
-
-  for (
-    const [
-      category,
-      data,
-    ] of Object.entries(
-      REACTION_CATEGORIES
-    )
-  ) {
-    const phraseScore =
-      countPhraseMatches(
+  /*
+   * 1. TEXT / CAPTION CATEGORY MATCH
+   *
+   * Category matching ALWAYS has priority over
+   * emoji-family matching.
+   */
+  for (const data of Object.values(REACTION_CATEGORIES)) {
+    if (
+      reactionPhraseMatches(
         text,
         data.phrases || []
-      );
-
-    const wordScore =
-      countWordMatches(
-        text,
-        data.words || []
-      );
-
-    let score =
-      phraseScore +
-      wordScore;
-
-    if (
-      phraseScore > 0
+      ) > 0
     ) {
-      score += 3;
-    }
-
-    scores.push({
-      category,
-      score,
-      emojis:
-        data.emojis || [],
-    });
-  }
-
-  /* -------------------------------------------------------
-   * Emoji bonuses
-   * ------------------------------------------------------- */
-
-  for (
-    const bonus of emojiBonus(text)
-  ) {
-    if (
-      text.includes(
-        bonus.emojis.find(
-          (emoji) =>
-            text.includes(emoji)
-        ) || "\0"
-      )
-    ) {
-      const item =
-        scores.find(
-          (x) =>
-            x.category ===
-            bonus.category
-        );
-
-      if (item) {
-        item.score +=
-          bonus.score;
-      }
+      return randomItem(data.emojis);
     }
   }
 
-  /* -------------------------------------------------------
-   * Sort by strongest meaning
-   * ------------------------------------------------------- */
+  /*
+   * 2. NO WORD MATCH -> EMOJI FAMILY MATCH
+   */
+  const emojiFamily = reactionEmojiFamily(text);
 
-  scores.sort(
-    (a, b) =>
-      b.score - a.score
-  );
+  if (emojiFamily) {
+    if (emojiFamily.reaction) {
+      return emojiFamily.reaction;
+    }
 
-  const best =
-    scores[0];
-
-  /* -------------------------------------------------------
-   * Strong semantic match
-   * ------------------------------------------------------- */
-
-  if (
-    best &&
-    best.score >= 2
-  ) {
     return randomItem(
-      best.emojis
+      emojiFamily.reactions
     );
   }
 
-  /* -------------------------------------------------------
-   * Media with caption but weak text
-   * ------------------------------------------------------- */
-
-  if (
-    type !== "text" &&
-    MEDIA_REACTIONS[type]
-  ) {
-    return randomItem(
-      MEDIA_REACTIONS[type]
-    );
-  }
-
-  /* -------------------------------------------------------
-   * Generic text fallback
-   * ------------------------------------------------------- */
-
-  return randomItem(
-    GENERIC_REACTIONS
-  );
+  /*
+   * 3. NO TEXT / EMOJI MATCH
+   *
+   * Captioned image/video and normal text
+   * use GENERAL_REACTIONS.
+   */
+  return randomItem(GENERAL_REACTIONS);
 }
+
+
+
+/* =========================================================
+ * SMART REACTION
+ * ========================================================= */
 
 /* =========================================================
  * SHOULD AUTO REACT
