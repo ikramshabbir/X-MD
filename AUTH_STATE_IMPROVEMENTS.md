@@ -199,7 +199,7 @@ Potential improvements for future versions:
 ## Migration from File-Based Storage
 
 To migrate from `useMultiFileAuthState`:
-1. Install dependencies: `yarn add async-mutex`
+1. Install dependencies: `npm install async-mutex`
 2. Import `useMultiDbAuthState` instead of `useMultiFileAuthState`
 3. Remove filesystem-based session directory
 4. Update connection code (already done)

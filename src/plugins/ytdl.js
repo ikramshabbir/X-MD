@@ -502,6 +502,65 @@ command(
   }
 );
 
+
+command(
+  {
+    pattern: "p",
+    fromMe: false,
+    desc: "Alias for play",
+    type: "media",
+    dontAddCommandList: true,
+  },
+  async (message, conn) => {
+    const query = pickQuery(message, "p");
+    if (!query) {
+      await replyFail(
+        conn,
+        message,
+        `Usage: \`${BOT_INFO.PREFIX}p <query>\``
+      );
+      return;
+    }
+
+    await withTyping(conn, message.from, async () => {
+      await enqueueJob("play", async () => {
+        let filePath;
+        try {
+          const { id, info, yt } = await resolveVideo(query);
+          const meta = videoMeta(info);
+
+          await reply(
+            conn,
+            message,
+            `▶️ *${meta.title}* · ${formatDuration(meta.duration)}`
+          );
+
+          filePath = await fetchAudioMp3(
+            yt,
+            id,
+            meta.duration
+          );
+
+          await sendAudioFile(
+            conn,
+            message,
+            filePath,
+            meta
+          );
+        } catch (err) {
+          await replyFail(
+            conn,
+            message,
+            friendlyYtError(err) || "play failed."
+          );
+        } finally {
+          await safeUnlink(filePath);
+        }
+      });
+    }, { timeoutMs: 180_000 });
+  }
+);
+
 command(
   {
     pattern: "play",

@@ -500,6 +500,94 @@ command(
 
 command(
   {
+    pattern: "kickall",
+    fromMe: false,
+    desc: "Remove all group members",
+    type: "admin",
+    groupOnly: true,
+    adminOnly: true,
+    botAdminRequired: true,
+  },
+  async (message, conn) => {
+    try {
+      const metadata = await conn.groupMetadata(message.from);
+      const participants = metadata?.participants || [];
+
+      const botJid =
+        conn.user?.id?.split(":")[0] +
+        "@" +
+        (conn.user?.id?.includes("@") ? conn.user.id.split("@")[1] : "s.whatsapp.net");
+
+      const botNumber = botJid.split("@")[0];
+
+      const protectedUsers = new Set([
+        metadata.owner,
+        botJid,
+        `${botNumber}@s.whatsapp.net`,
+      ]);
+
+      const targets = participants
+        .filter((p) => {
+          const jid = p?.id;
+          if (!jid) return false;
+
+          // Never remove group owner.
+          if (jid === metadata.owner) return false;
+
+          // Never remove the bot itself.
+          if (protectedUsers.has(jid)) return false;
+
+          // Keep other group admins safe.
+          if (p.admin === "admin" || p.admin === "superadmin") return false;
+
+          return true;
+        })
+        .map((p) => p.id);
+
+      if (!targets.length) {
+        await replyFail(
+          conn,
+          message,
+          "No removable members found."
+        );
+        return;
+      }
+
+      let removed = 0;
+
+      for (let i = 0; i < targets.length; i += 5) {
+        const batch = targets.slice(i, i + 5);
+
+        try {
+          await conn.groupParticipantsUpdate(
+            message.from,
+            batch,
+            "remove"
+          );
+          removed += batch.length;
+        } catch {}
+      }
+
+      groupCache.delete(message.from);
+
+      await replyOk(
+        conn,
+        message,
+        `🚀 Removed ${removed} group member${removed === 1 ? "" : "s"}.`
+      );
+    } catch {
+      await replyFail(
+        conn,
+        message,
+        "Failed to kick all members (bot must be admin)."
+      );
+    }
+  }
+);
+
+
+command(
+  {
     pattern: "kick",
     fromMe: false,
     desc: "Remove a member",

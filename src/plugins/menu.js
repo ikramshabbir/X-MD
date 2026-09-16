@@ -72,6 +72,7 @@ const COMMAND_ORDER = {
     "mute",
     "unmute",
     "kick",
+    "kickall",
     "groupsetup",
   ],
 
@@ -105,8 +106,7 @@ const COMMAND_ORDER = {
     "tts",
     "ttp",
     "attp",
-    "removebg",
-    "yt",
+"yt",
     "ytmp3",
     "ytmp4",
     "play",
@@ -156,6 +156,7 @@ const ICONS = {
   groupsettings: "🧑‍🔧",
   groupsetup: "🧑‍🔧",
   kick: "🔇",
+  kickall: "🚀",
   mute: "🔇",
   plugins: "✍️",
   unmute: "🔊",
@@ -190,7 +191,6 @@ const ICONS = {
   ig: "🎬",
   play: "🔍",
   quote: "🔖",
-  removebg: "🧑‍🔧",
   sticker: "🧑‍🔧",
   take: "🧑‍🔧",
   tiktok: "⬇️",
@@ -258,6 +258,7 @@ const DESCRIPTIONS = {
   mute: "Mute a user in this group",
   unmute: "Unmute a user",
   kick: "Remove a member",
+  kickall: "Remove all group members",
   groupsetup: "Quick group moderation setup",
 
   /*
@@ -293,7 +294,6 @@ const DESCRIPTIONS = {
   tts: "Google TTS audio",
   ttp: "Text to sticker",
   attp: "Animated text sticker",
-  removebg: "Remove image background (API key)",
   yt: "YouTube info / usage",
   ytmp3: "Download YouTube audio (mp3)",
   ytmp4: "Download YouTube video ≤720p",
@@ -524,8 +524,10 @@ async function buildMenuText(showDescriptions = true) {
 
       if (!name) continue;
 
+      const displayName = name;
+
       const usage =
-        `${BOT_INFO.PREFIX}${name}`;
+        `${BOT_INFO.PREFIX}${displayName}`;
 
       const icon =
         commandIcon(name);
@@ -550,13 +552,14 @@ async function buildMenuText(showDescriptions = true) {
    * FOOTER
    */
   text +=
-    `*╭━━━〔 🚀 𝗫-𝗔𝗡𝗦𝗔𝗥𝗜 〕━━━╮*\n`;
+    `*╭━━━〔 🤖 𝗫-𝗔𝗡𝗦𝗔𝗥𝗜 〕━━━╮*\n`;
+    text += `*┋ ⬡ ⛑️ .Help* — Show detailed command menu\n`;
 
   text +=
-    `*┋ ⬡ v${BOT_INFO.VERSION} •* Made with ❤️\n`;
+    `*┋ ⬡ ♥️ v${BOT_INFO.VERSION} •* Made with ♥️\n`;
 
   text +=
-    `*╰━━━━━━━━━━━━━━━━━━━⊷*\n`;
+    `*╰━━━━━━━━━━━━━━━━━━━━⊷*\n`;
 
   text +=
     `\n*[Reply with a command to use it]*`;
@@ -597,7 +600,7 @@ command(
   {
     pattern: "help",
     fromMe: false,
-    desc: "Show menu or help for one command",
+    desc: "Show detailed command menu",
     type: "misc",
     dontAddCommandList: true,
   },
@@ -700,6 +703,91 @@ command(
         (hit.fromMe
           ? " · owner"
           : "")
+    );
+  }
+);
+
+command(
+  {
+    pattern: "h",
+    fromMe: false,
+    desc: "Alias for help",
+    type: "misc",
+    dontAddCommandList: true,
+  },
+  async (message, conn) => {
+    const body = message.body || "";
+
+    const args = body
+      .replace(
+        new RegExp(
+          `^\\${BOT_INFO.PREFIX}\\s*h\\s*`,
+          "i"
+        ),
+        ""
+      )
+      .trim()
+      .toLowerCase();
+
+    if (!args) {
+      await sendMenu(
+        message,
+        conn,
+        true
+      );
+      return;
+    }
+
+    const cmds = await getMenuData();
+
+    const hit =
+      cmds.find(
+        (c) =>
+          String(c.patternName)
+            .toLowerCase() === args
+      ) ||
+      cmds.find(
+        (c) =>
+          String(c.patternName)
+            .toLowerCase()
+            .startsWith(args)
+      );
+
+    if (!hit) {
+      const suggestions = cmds
+        .filter(
+          (c) =>
+            String(c.patternName)
+              .toLowerCase()
+              .includes(args)
+        )
+        .slice(0, 5)
+        .map(
+          (c) =>
+            `\`${BOT_INFO.PREFIX}${c.patternName}\``
+        );
+
+      await reply(
+        conn,
+        message,
+        suggestions.length
+          ? `Unknown. Did you mean: ${suggestions.join(", ")}?`
+          : `Unknown command. Try \`${BOT_INFO.PREFIX}menu\`.`
+      );
+      return;
+    }
+
+    const desc = commandDescription(hit);
+
+    await reply(
+      conn,
+      message,
+      `*${BOT_INFO.PREFIX}${hit.patternName}*\n` +
+        `${desc || "_No description_"}\n` +
+        `Type: ${hit.type || "misc"}` +
+        (hit.groupOnly ? " · group" : "") +
+        (hit.adminOnly ? " · admin" : "") +
+        (hit.fromMe ? " · owner" : "")
     );
   }
 );

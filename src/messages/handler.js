@@ -2403,31 +2403,10 @@ export async function messageHandler(
       findCommand(body);
 
     if (!command) {
-
       console.log(
         "❌ COMMAND NOT FOUND:",
         body
       );
-
-      try {
-        await conn.sendMessage(
-          message.from,
-          {
-            text:
-              `❌ Command not found.\nUse ${
-                BOT_INFO?.PREFIX || "."
-              }menu`,
-          }
-        );
-      } catch (error) {
-
-        console.error(
-          "❌ Failed to send command-not-found:",
-          error?.message ||
-            error
-        );
-      }
-
       return;
     }
 

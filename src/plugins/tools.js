@@ -1,5 +1,5 @@
 /**
- * Accessory tools — tomp3, url, quote, fancy, tts, ttp, attp, removebg
+ * Accessory tools — tomp3, url, quote, fancy, tts, ttp, attp
  */
 
 import { command } from "../plugins.js";
@@ -20,53 +20,306 @@ import {
 import { MEDIA, BOT_INFO } from "../config/constants.js";
 import { readFile, stat } from "fs/promises";
 
-const FANCY_MAPS = [
-  // Mathematical Bold
-  {
-    name: "bold",
-    map: (c) => {
-      const code = c.codePointAt(0);
-      if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d400 + (code - 65));
-      if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d41a + (code - 97));
+const makeMap = (lower, upper) => {
+  const m = {};
+  const low = "abcdefghijklmnopqrstuvwxyz";
+  const up = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  [...low].forEach((c, i) => {
+    m[c] = [...lower][i] ?? c;
+  });
+
+  [...up].forEach((c, i) => {
+    m[c] = [...upper][i] ?? c;
+  });
+
+  return (c) => m[c] ?? c;
+};
+
+const transform = (text, fn) => [...text].map(fn).join("");
+
+const addMark = (text, mark) =>
+  [...text].map((c) => c + mark).join("");
+
+const reverseMap = {
+  a: "ɐ", b: "q", c: "ɔ", d: "p", e: "ǝ",
+  f: "ɟ", g: "ƃ", h: "ɥ", i: "ı", j: "ɾ",
+  k: "ʞ", l: "l", m: "ɯ", n: "u", o: "o",
+  p: "d", q: "b", r: "ɹ", s: "s", t: "ʇ",
+  u: "n", v: "ʌ", w: "ʍ", x: "x", y: "ʎ", z: "z",
+};
+
+const latinMap = {
+  i: "ɨ", k: "ƙ", r: "ɾ", a: "ɑ", m: "ɱ",
+};
+
+const birdMap = {
+  i: "꒐", k: "ꀘ", r: "ꋪ", a: "ꋫ", m: "ꂵ",
+};
+
+const hinaMap = {
+  i: "ለ", k: "ሊ", r: "ጎ", a: "ሀ", m: "ጠ",
+};
+
+const greekMap = {
+  i: "𝛊", k: "𝛋", r: "𝛒", a: "𝛂", m: "𝛍",
+};
+
+const cherokeeMap = {
+  i: "Ꭵ", k: "Ꮶ", r: "Ꮢ", a: "Ꭺ", m: "Ꮇ",
+};
+
+const upsideDown = (text) =>
+  [...text]
+    .reverse()
+    .map((c) => reverseMap[c.toLowerCase()] ?? c)
+    .join("");
+
+const mapped = (text, map) =>
+  [...text].map((c) => map[c.toLowerCase()] ?? c).join("");
+
+const fullWidth = (text) =>
+  [...text]
+    .map((c) => {
+      const n = c.codePointAt(0);
+
+      if (n >= 33 && n <= 126) {
+        return String.fromCodePoint(0xff01 + n - 33);
+      }
+
+      if (c === " ") return "　";
       return c;
-    },
-  },
-  // Mathematical Italic
-  {
-    name: "italic",
-    map: (c) => {
-      const code = c.codePointAt(0);
-      if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d434 + (code - 65));
-      if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d44e + (code - 97));
-      return c;
-    },
-  },
-  // Bubbled
-  {
-    name: "bubble",
-    map: (c) => {
-      const code = c.codePointAt(0);
-      if (code >= 65 && code <= 90) return String.fromCodePoint(0x24b6 + (code - 65));
-      if (code >= 97 && code <= 122) return String.fromCodePoint(0x24d0 + (code - 97));
-      return c;
-    },
-  },
-  // Fullwidth
-  {
-    name: "fullwidth",
-    map: (c) => {
-      const code = c.codePointAt(0);
-      if (code >= 33 && code <= 126) return String.fromCodePoint(0xff01 + (code - 33));
-      return c;
-    },
-  },
+    })
+    .join("");
+
+const circledLower =
+  "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ";
+
+const circledUpper =
+  "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ";
+
+const negativeCircleLower =
+  "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ";
+
+const negativeCircleUpper =
+  "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ";
+
+const circled = makeMap(circledLower, circledUpper);
+const negativeCircled = makeMap(negativeCircleLower, negativeCircleUpper);
+
+const smallCapsMap = {
+  a: "ᴀ", b: "ʙ", c: "ᴄ", d: "ᴅ", e: "ᴇ",
+  f: "ꜰ", g: "ɢ", h: "ʜ", i: "ɪ", j: "ᴊ",
+  k: "ᴋ", l: "ʟ", m: "ᴍ", n: "ɴ", o: "ᴏ",
+  p: "ᴘ", q: "ǫ", r: "ʀ", s: "s", t: "ᴛ",
+  u: "ᴜ", v: "ᴠ", w: "ᴡ", x: "x", y: "ʏ", z: "ᴢ",
+};
+
+const fontMaps = {
+  bold: makeMap(
+    "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳",
+    "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
+  ),
+
+  italic: makeMap(
+    "𝑎𝑏𝑐𝑑𝑒𝑓𝑔ℎ𝑖𝑗𝑘𝑙𝑚𝑛𝑜𝑝𝑞𝑟𝑠𝑡𝑢𝑣𝑤𝑥𝑦𝑧",
+    "𝐴𝐵𝐶𝐷𝐸𝐹𝐺𝐻𝐼𝐽𝐾𝐿𝑀𝑁𝑂𝑃𝑄𝑅𝑆𝑇𝑈𝑉𝑊𝑋𝑌𝑍"
+  ),
+
+  script: makeMap(
+    "𝒶𝒷𝒸𝒹𝑒𝒻𝑔𝒽𝒾𝒿𝓀𝓁𝓂𝓃𝑜𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏",
+    "𝒜𝐵𝒞𝒟𝐸𝐹𝒢𝐻𝐼𝒥𝒦𝐿𝑀𝒩𝒪𝒫𝒬𝑅𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
+  ),
+
+  scriptBold: makeMap(
+    "𝓪𝓫𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝓴𝓵𝓶𝓷𝓸𝓹𝓺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃",
+    "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝓞𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
+  ),
+
+  fraktur: makeMap(
+    "𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷",
+    "𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ"
+  ),
+
+  frakturBold: makeMap(
+    "𝖆𝖇𝖈𝖉𝖊𝖋𝖌𝖍𝖎𝖏𝖐𝖑𝖒𝖓𝖔𝖕𝖖𝖗𝖘𝖙𝖚𝖛𝖜𝖝𝖞𝖟",
+    "𝕬𝕭𝕮𝕯𝕰𝕱𝕲𝕳𝕴𝕵𝕶𝕷𝕸𝕹𝕺𝕻𝕼𝕽𝕾𝕿𝖀𝖁𝖂𝖃𝖄𝖅"
+  ),
+
+  double: makeMap(
+    "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫",
+    "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
+  ),
+
+  sansItalic: makeMap(
+    "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻",
+    "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡"
+  ),
+
+  sansBold: makeMap(
+    "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯",
+    "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕"
+  ),
+
+  mono: makeMap(
+    "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣",
+    "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
+  ),
+};
+
+const advanced = (text) => [
+  [...text].map((c) => `͜${c}͢`).join(""),
+  [...text].map((c) => `͡${c}͢`).join(""),
+  addMark(text, "፝֟"),
+  addMark(text, "֟ؖ۬"),
+  addMark(text, "̼̽"),
+  [...text].map((c) => `֟ؖ۬͜${c}͢`).join(""),
+  addMark(text, "𝅦"),
+  [...text].map((c) => `͛${c}̬`).join(""),
+  [...text].map((c) => `͜${c}፝֟͢`).join(""),
+  [...text].map((c) => `֟ؖ۬͜${c}፝֟͢`).join(""),
+  [...text].map((c) => `͜${c}̬͢`).join(""),
 ];
 
 function fancyText(text) {
-  return FANCY_MAPS.map((f) => ({
-    name: f.name,
-    text: [...text].map((c) => f.map(c)).join(""),
-  }));
+  const t = String(text);
+
+  const rows = [
+    ["Normal", transform(t, fontMaps.bold)],
+    ["Script", transform(t, fontMaps.script)],
+    ["Script Bold", transform(t, fontMaps.scriptBold)],
+    ["Serif 1", transform(t, fontMaps.bold)],
+    ["Serif 2", transform(t, fontMaps.italic)],
+    ["Serif 3", transform(t, fontMaps.fraktur)],
+    ["Sans 1", transform(t, fontMaps.frakturBold)],
+    ["Sans 2", transform(t, fontMaps.sansItalic)],
+    ["Sans 3", transform(t, fontMaps.sansBold)],
+    ["Sans 4", transform(t, fontMaps.mono)],
+    ["Courier", transform(t, fontMaps.mono)],
+    ["Fractur PKR", transform(t, fontMaps.double)],
+    ["Fractur Bold", transform(t, fontMaps.frakturBold)],
+    ["Calligraphic", transform(t, fontMaps.scriptBold)],
+    ["Caslon", transform(t, fontMaps.script)],
+    ["Bauer", transform(t, fontMaps.italic)],
+    ["Outline", fullWidth(t)],
+    ["Typewrite", transform(t, fontMaps.mono)],
+
+    ["COROO", mapped(t, smallCapsMap)],
+
+    ["SQUAR", transform(t, negativeCircled)],
+    ["SPOE", transform(t, circled)],
+
+    ["『H』 『e』", `『${transform(t, fontMaps.script)}』`],
+    ["【H】 【e】", `【${transform(t, fontMaps.script)}】`],
+
+    ["SUNSHINE", transform(t, circled)],
+    ["SunRound", transform(t, negativeCircled)],
+
+    ["Bird", mapped(t, birdMap)],
+    ["Install", upsideDown(t)],
+
+    ["Empire", `亗${transform(t, fontMaps.script)}亗`],
+    ["Power", `꧁${transform(t, fontMaps.script)}꧂`],
+    ["Go left", `← ${transform(t, fontMaps.script)}`],
+    ["Go right", `${transform(t, fontMaps.script)} →`],
+    ["Arrow", `↝${transform(t, fontMaps.script)}↜`],
+
+    ["app", mapped(t, {
+      i: "ᵢ", k: "ₖ", r: "ᵣ", a: "ₐ", m: "ₘ",
+    })],
+
+    ["FOROZE", mapped(t, {
+      i: "ł", k: "₭", r: "Ɽ", a: "₳", m: "₥",
+    })],
+
+    ["HOTŠ Of", mapped(t, {
+      i: "ï", k: "ķ", r: "ř", a: "å", m: "m",
+    })],
+
+    ["Strike", addMark(t, "̶")],
+    ["Clouds", addMark(addMark(t, "̈"), "̐")],
+    ["Häppy PKR", mapped(t, latinMap)],
+    ["Cheerful", addMark(t, "̽")],
+    ["Gloomy", addMark(t, "̊")],
+    ["hina", mapped(t, hinaMap)],
+    ["Lestinky", mapped(t, {
+      i: "ɨ", k: "ӄ", r: "ɾ", a: "ɑ", m: "ɱ",
+    })],
+    ["Lighting", mapped(t, greekMap)],
+    ["Linle", addMark(t, "̬")],
+
+    ["Underline 1", addMark(t, "̲")],
+    ["Underline 2", addMark(t, "̳")],
+
+    ["Rails 1", addMark(t, "̸")],
+    ["Rails 2", addMark(t, "̷")],
+    ["Rails 3", addMark(t, "⃪")],
+
+    ["HIGHLIGHT", [...t].map((c) => `[̲̅${c}]`).join("")],
+
+    ["Skyline 1", addMark(t, "̄")],
+    ["Skyline 2", addMark(t, "̅")],
+    ["Skyline 3", addMark(t, "͞")],
+
+    ["Demons", `乂${transform(t, fontMaps.script)}乂`],
+    ["Wheel", `◎${transform(t, fontMaps.script)}◎`],
+    ["AIRBALL", `◉${transform(t, fontMaps.script)}◉`],
+    ["Poštěr", `╔═${transform(t, fontMaps.script)}═╗`],
+    ["PKR", `₱${transform(t, fontMaps.script)}₱`],
+    ["Popstar", `★${transform(t, fontMaps.script)}★`],
+    ["SPARKLE", `✧${transform(t, fontMaps.script)}✧`],
+    ["China Legend", `༺${transform(t, fontMaps.script)}༻`],
+    ["BOU DODOH", `༼${transform(t, fontMaps.script)}༽`],
+    ["Koiote", `〆${transform(t, fontMaps.script)}〆`],
+    ["CURLS", `❮${transform(t, fontMaps.script)}❯`],
+    ["Rail.Mack", `╭─${transform(t, fontMaps.script)}─╮`],
+    ["Track", `╰─${transform(t, fontMaps.script)}─╯`],
+
+    ["Dotify 1", addMark(t, "̇")],
+    ["Dotify 2", addMark(t, "̈")],
+    ["Dotify 3", addMark(t, "⃛")],
+    ["Foot", addMark(t, "̣")],
+
+    ["çóóĻήέşş", mapped(t, {
+      c: "ç", o: "ó", l: "Ļ", e: "ή", s: "ş",
+    })],
+
+    ["Share app", addMark(t, "֟፝")],
+    ["ruff road", [...t].map((c) => `${c}𝆭`).join("")],
+    ["Wave", [...t].map((c) => `֟ؖ۬͜${c}`).join("")],
+    ["tiny", mapped(t, {
+      a: "ₐ", b: "ᵦ", c: "𝚌", d: "ᵈ", e: "ₑ",
+      f: "ᶠ", g: "ᵍ", h: "ₕ", i: "ᵢ", j: "ⱼ",
+      k: "ₖ", l: "ₗ", m: "ₘ", n: "ₙ", o: "ₒ",
+      p: "ₚ", q: "q", r: "ᵣ", s: "ₛ", t: "ₜ",
+      u: "ᵤ", v: "ᵥ", w: "ʷ", x: "ₓ", y: "ʸ", z: "ᶻ",
+    })],
+
+    ["TINY CAPS", mapped(t, smallCapsMap)],
+    ["Soo.cocoe", addMark(t, "֟፝݊")],
+    ["имор әрısdn", mapped(t, latinMap)],
+    ["COMIC", transform(t, negativeCircled)],
+    ["爪开几开", mapped(t, {
+      i: "爪", k: "开", r: "几", a: "开", m: "爪",
+    })],
+
+    ["Smartie", [...t].map((c) => `${c}꧊༨`).join("")],
+    ["Rackham", addMark(t, "𝅦")],
+    ["Ensemble", addMark(t, "̼̽")],
+    ["HUOJSQ", mapped(t, cherokeeMap)],
+  ];
+
+  return rows
+    .map(([, value], i) => ({
+      name: String(i + 1),
+      text: `${i + 1}• ${value}`,
+    }))
+    .concat(
+      advanced(t).map((value, i) => ({
+        name: String(rows.length + i + 1),
+        text: `${rows.length + i + 1}• ${value}`,
+      }))
+    );
 }
 
 command(
@@ -184,45 +437,71 @@ command(
   },
   async (message, conn) => {
     await withTyping(conn, message.from, async () => {
+      let out = null;
       try {
         let text =
           getCommandArgs(message.body, "quote") ||
           message.quoted?.text ||
           "";
-        text = String(text).trim().slice(0, 200);
+        text = String(text).trim().replace(/^["']|["']$/g, "").slice(0, 200);
+
         if (!text) {
-          await replyFail(
-            conn,
-            message,
-            `Usage: \`${BOT_INFO.PREFIX}quote <text>\` or reply to a message`
-          );
+          await replyFail(conn, message, `Usage: \`${BOT_INFO.PREFIX}quote <text>\` or reply to a message`);
           return;
         }
+
         const name = message.quoted
           ? message.message?.contextInfo?.participant?.split("@")[0] ||
-            message.pushName ||
-            "User"
+            message.pushName || "User"
           : message.pushName || "User";
 
-        const sharp = (await import("sharp")).default;
-        const escaped = text
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
-        const svg = `
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="32" fill="#1f2c34"/>
-  <text x="40" y="80" font-size="28" fill="#53bdeb" font-family="Arial,sans-serif">${String(name).slice(0, 24)}</text>
-  <foreignObject x="40" y="110" width="432" height="340">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="color:#e9edef;font-size:26px;font-family:Arial,sans-serif;line-height:1.35;word-wrap:break-word;">
-      ${escaped}
-    </div>
-  </foreignObject>
-</svg>`;
-        const webp = await sharp(Buffer.from(svg))
-          .webp({ quality: 85 })
-          .toBuffer();
+        const { execFile } = await import("child_process");
+        const { promisify } = await import("util");
+        const runFFmpeg = promisify(execFile);
+
+        const esc = (v) => String(v)
+          .replace(/\\/g, "\\\\")
+          .replace(/:/g, "\\:")
+          .replace(/'/g, "\\'")
+          .replace(/%/g, "\\%")
+          .replace(/\[/g, "\\[")
+          .replace(/\]/g, "\\]");
+
+        const words = text.split(/\s+/);
+        const lines = [];
+        let line = "";
+        for (const word of words) {
+          const test = line ? `${line} ${word}` : word;
+          if (test.length > 25) {
+            if (line) lines.push(line);
+            line = word;
+          } else line = test;
+        }
+        if (line) lines.push(line);
+
+        const textFilters = lines.slice(0, 8).map((l, i) =>
+          `drawtext=text='${esc(l)}':fontcolor=white:fontsize=44:borderw=2:bordercolor=white:x=(w-text_w)/2:y=${145 + i * 43}`
+        ).join(",");
+
+        const safeName = esc(String(name).slice(0, 24));
+
+        out = createTempPath(".webp");
+
+        await runFFmpeg("ffmpeg", [
+          "-hide_banner",
+          "-loglevel", "error",
+          "-f", "lavfi",
+          "-i", "color=c=black:s=512x512:r=1",
+          "-vf",
+          `${textFilters},drawtext=text='— ${safeName}':fontcolor=#d9d9d9:fontsize=22:borderw=1:bordercolor=#d9d9d9:x=w-text_w-28:y=h-text_h-24`,
+          "-frames:v", "1",
+          "-c:v", "libwebp",
+          "-q:v", "75",
+          "-y",
+          out
+        ]);
+
+        const webp = await readFile(out);
         await conn.sendMessage(
           message.from,
           { sticker: webp },
@@ -230,11 +509,12 @@ command(
         );
       } catch (err) {
         await replyFail(conn, message, err?.message || "quote failed.");
+      } finally {
+        if (out) await safeUnlink(out);
       }
     });
   }
-);
-
+)
 command(
   {
     pattern: "fancy",
@@ -255,7 +535,7 @@ command(
     await reply(
       conn,
       message,
-      styles.map((s) => `*${s.name}*\n${s.text}`).join("\n\n")
+      styles.map((s) => s.text).join("\n")
     );
   }
 );
@@ -298,7 +578,7 @@ command(
         const buf = Buffer.from(res.data);
         await conn.sendMessage(
           message.from,
-          { audio: buf, mimetype: "audio/mpeg", ptt: true },
+          { audio: buf, mimetype: "audio/mpeg" },
           { quoted: { key: message.key, message: message.message } }
         );
       } catch (err) {
@@ -314,96 +594,145 @@ async function textToSticker(message, conn, { animated = false } = {}) {
     getCommandArgs(message.body, pattern) ||
     message.quoted?.text ||
     "";
+
   text = String(text).trim().slice(0, 40);
+
   if (!text) {
-    await replyFail(conn, message, `Usage: \`${BOT_INFO.PREFIX}${pattern} <text>\``);
+    await replyFail(
+      conn,
+      message,
+      `Usage: \`${BOT_INFO.PREFIX}${pattern} <text>\``
+    );
     return;
   }
 
-  const sharp = (await import("sharp")).default;
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  const runFFmpeg = promisify(execFile);
+
+  const escapeDrawtext = (value) =>
+    String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/:/g, "\\:")
+      .replace(/'/g, "\\'")
+      .replace(/%/g, "\\%")
+      .replace(/\[/g, "\\[")
+      .replace(/\]/g, "\\]");
+
+  const safeText = escapeDrawtext(text);
+  const font = "/system/fonts/Roboto-Regular.ttf";
 
   if (!animated) {
-    const svg = `
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" fill="transparent"/>
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-    font-size="64" font-weight="700" fill="#ffffff" stroke="#000000" stroke-width="6"
-    paint-order="stroke" font-family="Arial Black,Arial,sans-serif">${escaped}</text>
-</svg>`;
-    const webp = await sharp(Buffer.from(svg)).webp({ quality: 90 }).toBuffer();
-    await conn.sendMessage(
-      message.from,
-      { sticker: webp },
-      { quoted: { key: message.key, message: message.message } }
-    );
+    const out = createTempPath(".webp");
+
+    try {
+      await runFFmpeg("ffmpeg", [
+        "-hide_banner",
+        "-loglevel", "error",
+        "-f", "lavfi",
+        "-i", "color=c=white:s=512x512:r=1",
+        "-vf",
+        `drawtext=text='${safeText}':fontcolor=black:fontsize=64:fontfile=${font}:x=(w-text_w)/2:y=(h-text_h)/2`,
+        "-frames:v", "1",
+        "-c:v", "libwebp",
+        "-y",
+        out
+      ]);
+
+      const webp = await readFile(out);
+
+      await conn.sendMessage(
+        message.from,
+        { sticker: webp },
+        {
+          quoted: {
+            key: message.key,
+            message: message.message
+          }
+        }
+      );
+    } finally {
+      await safeUnlink(out);
+    }
+
     return;
   }
 
-  // Simple “animated” attp: cycle fill colors across frames via sharp → ffmpeg webp
-  const colors = ["#ff0000", "#ff9900", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
+  const colors = [
+    "red",
+    "orange",
+    "yellow",
+    "lime",
+    "cyan",
+    "blue",
+    "magenta"
+  ];
+
   const frames = [];
+  const out = createTempPath(".webp");
+
   try {
     for (let i = 0; i < colors.length; i++) {
-      const svg = `
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" fill="transparent"/>
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-    font-size="64" font-weight="700" fill="${colors[i]}" stroke="#000000" stroke-width="6"
-    paint-order="stroke" font-family="Arial Black,Arial,sans-serif">${escaped}</text>
-</svg>`;
-      const png = await sharp(Buffer.from(svg)).png().toBuffer();
-      const fp = await writeTempFile(png, `.f${i}.png`);
+      const fp = createTempPath(".png");
+
+      await runFFmpeg("ffmpeg", [
+        "-hide_banner",
+        "-loglevel", "error",
+        "-f", "lavfi",
+        "-i", "color=c=black:s=512x512:r=1",
+        "-vf",
+        `drawtext=text='${safeText}':fontcolor=${colors[i]}:fontsize=64:fontfile=${font}:x=(w-text_w)/2:y=(h-text_h)/2`,
+        "-frames:v", "1",
+        "-update", "1",
+        "-y",
+        fp
+      ]);
+
       frames.push(fp);
     }
-    const listFile = createTempPath(".txt");
+
+    const input = createTempPath(".txt");
     const { writeFile } = await import("fs/promises");
+
     await writeFile(
-      listFile,
-      frames.map((f) => `file '${f.replace(/\\/g, "/")}'\nduration 0.12`).join("\n") +
-        `\nfile '${frames[frames.length - 1].replace(/\\/g, "/")}'`
+      input,
+      frames.map((f) => `file '${f.replace(/'/g, "'\\''")}'\nduration 0.15`).join("\n") +
+      `\nfile '${frames[frames.length - 1].replace(/'/g, "'\\''")}'`
     );
-    const out = createTempPath(".webp");
-    const { ffmpegConvert } = await import("../utils/media.js");
-    try {
-      await ffmpegConvert(listFile, out, (cmd) =>
-        cmd
-          .inputOptions(["-f", "concat", "-safe", "0"])
-          .outputOptions(["-vcodec", "libwebp", "-loop", "0", "-an"])
-          .format("webp")
-      );
-      const buf = await readFile(out);
-      await conn.sendMessage(
-        message.from,
-        { sticker: buf },
-        { quoted: { key: message.key, message: message.message } }
-      );
-    } finally {
-      await safeUnlink(listFile);
-      await safeUnlink(out);
-    }
-  } catch {
-    // Fallback static if ffmpeg anim fails
-    const svg = `
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-    font-size="64" font-weight="700" fill="#ff0055" stroke="#000" stroke-width="6"
-    paint-order="stroke" font-family="Arial Black,Arial,sans-serif">${escaped}</text>
-</svg>`;
-    const webp = await sharp(Buffer.from(svg)).webp().toBuffer();
+
+    await runFFmpeg("ffmpeg", [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", input,
+      "-c:v", "libwebp",
+      "-loop", "0",
+      "-lossless", "0",
+      "-q:v", "60",
+      "-y",
+      out
+    ]);
+
+    const webp = await readFile(out);
+
     await conn.sendMessage(
       message.from,
       { sticker: webp },
-      { quoted: { key: message.key, message: message.message } }
+      {
+        quoted: {
+          key: message.key,
+          message: message.message
+        }
+      }
     );
+
+    await safeUnlink(input);
   } finally {
     await Promise.all(frames.map(safeUnlink));
+    await safeUnlink(out);
   }
 }
-
 command(
   {
     pattern: "ttp",
@@ -437,64 +766,6 @@ command(
         await replyFail(conn, message, err?.message || "attp failed.");
       }
     }, { timeoutMs: 60_000 });
-  }
-);
-
-command(
-  {
-    pattern: "removebg",
-    fromMe: false,
-    desc: "Remove image background (API key)",
-    type: "media",
-  },
-  async (message, conn) => {
-    await withTyping(conn, message.from, async () => {
-      try {
-        const key = MEDIA.REMOVEBG_API_KEY;
-        if (!key) {
-          await replyFail(
-            conn,
-            message,
-            "Set `REMOVEBG_API_KEY` in env to use this command."
-          );
-          return;
-        }
-        const media = await downloadQuotedOrSelf(conn, message);
-        if (!media || media.type !== "image") {
-          await replyFail(conn, message, "Reply to an image.");
-          return;
-        }
-        const axios = (await import("axios")).default;
-        const form = new globalThis.FormData();
-        form.append("size", "auto");
-        form.append(
-          "image_file",
-          new Blob([media.buffer]),
-          "image.png"
-        );
-        const res = await axios.post(
-          "https://api.remove.bg/v1.0/removebg",
-          form,
-          {
-            headers: { "X-Api-Key": key },
-            responseType: "arraybuffer",
-            timeout: 60_000,
-            validateStatus: () => true,
-          }
-        );
-        if (res.status !== 200) {
-          const msg = Buffer.from(res.data || "").toString("utf8").slice(0, 200);
-          throw new Error(msg || `remove.bg error ${res.status}`);
-        }
-        await conn.sendMessage(
-          message.from,
-          { image: Buffer.from(res.data), caption: "🎨 Background removed" },
-          { quoted: { key: message.key, message: message.message } }
-        );
-      } catch (err) {
-        await replyFail(conn, message, err?.message || "removebg failed.");
-      }
-    }, { timeoutMs: 90_000 });
   }
 );
 

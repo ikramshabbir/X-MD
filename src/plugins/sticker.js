@@ -51,15 +51,15 @@ function buildExifBuffer(packname, author) {
     0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57,
     0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00,
   ]);
-  const len = Buffer.alloc(4);
-  len.writeUInt32LE(jsonBuff.length, 0);
-  return Buffer.concat([exifAttr, len, jsonBuff]);
+  const exif = Buffer.concat([exifAttr, jsonBuff]);
+  exif.writeUInt32LE(jsonBuff.length, 14);
+  return exif;
 }
 
 
 
 async function addExif(webpBuffer, packname, author) {
-  const { Image } = await import("node-webpmux");
+  const { Image } = (await import("node-webpmux")).default;
   const img = new Image();
   await img.load(webpBuffer);
   img.exif = buildExifBuffer(packname, author);
@@ -150,14 +150,7 @@ async function sendSticker(conn, message, webp, pack, author) {
 
 
 
-command(
-  {
-    pattern: "sticker",
-    fromMe: false,
-    desc: "Convert image/video to sticker",
-    type: "media",
-  },
-  async (message, conn) => {
+const stickerHandler = async (message, conn) => {
     await withTyping(conn, message.from, async () => {
       try {
         const media = await downloadQuotedOrSelf(conn, message);
@@ -177,9 +170,22 @@ command(
       }
     }, { timeoutMs: 60_000 });
   }
+
+
+
+
+
+
+
+command(
+  {
+    pattern: "sticker",
+    fromMe: false,
+    desc: "Convert image/video to sticker",
+    type: "media",
+  },
+  stickerHandler
 );
-
-
 
 command(
   {
@@ -189,30 +195,8 @@ command(
     type: "media",
     dontAddCommandList: true,
   },
-  async (message, conn) => {
-    // Reuse sticker logic via re-dispatch is awkward; call same flow
-    await withTyping(conn, message.from, async () => {
-      try {
-        const media = await downloadQuotedOrSelf(conn, message);
-        if (!media) {
-          await replyFail(
-            conn,
-            message,
-            `Reply to an image/video with \`${BOT_INFO.PREFIX}s\``
-          );
-          return;
-        }
-        const { pack, author } = await getPackMeta();
-        const webp = await makeStickerBuffer(media);
-        await sendSticker(conn, message, webp, pack, author);
-      } catch (err) {
-        await replyFail(conn, message, err?.message || "Sticker failed.");
-      }
-    }, { timeoutMs: 60_000 });
-  }
+  stickerHandler
 );
-
-
 
 async function takeHandler(message, conn) {
   await withTyping(conn, message.from, async () => {

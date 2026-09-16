@@ -108,106 +108,207 @@ async function fetchTikTok(url) {
  * Best-effort Instagram via public saveig-style endpoints / oEmbed fallback
  */
 async function fetchInstagram(url) {
-  const axios = (await import("axios")).default;
+  const timeout = (promise, ms, label) =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out.`)), ms)
+      ),
+    ]);
 
-  // Attempt 1: igdown / ddinstagram redirect (media often on ddinstagram)
+  const errors = [];
+
+  // Primary: btch-downloader
   try {
-    const dd = url
-      .replace("www.instagram.com", "ddinstagram.com")
-      .replace("instagram.com", "ddinstagram.com");
-    const page = await axios.get(dd, {
-      timeout: 25_000,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Accept: "text/html",
-      },
-      maxRedirects: 5,
-      validateStatus: (s) => s < 500,
-    });
-    const html = String(page.data || "");
-    const video =
-      html.match(/<meta property="og:video" content="([^"]+)"/i)?.[1] ||
-      html.match(/<meta name="twitter:player:stream" content="([^"]+)"/i)?.[1];
-    const image = html.match(
-      /<meta property="og:image" content="([^"]+)"/i
-    )?.[1];
-    const title =
-      html.match(/<meta property="og:title" content="([^"]+)"/i)?.[1] ||
-      "Instagram";
-    if (video || image) {
+    const { igdl } = await import("btch-downloader");
+    const result = await timeout(igdl(url), 25_000, "Instagram downloader");
+
+    const items = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.result)
+      ? result.result
+      : Array.isArray(result?.data)
+      ? result.data
+      : [];
+
+    const media = items.find(
+      (item) =>
+        item &&
+        typeof (item.url || item.download || item.media) === "string" &&
+        /^https?:\/\//i.test(item.url || item.download || item.media)
+    );
+
+    if (media) {
       return {
-        mediaUrl: decodeURIComponent(video || image),
-        caption: `📸 ${title}`,
+        mediaUrl: media.url || media.download || media.media,
+        caption: "📸 Instagram",
       };
     }
-  } catch {
-    /* try next */
+
+    if (typeof result?.url === "string" && /^https?:\/\//i.test(result.url)) {
+      return {
+        mediaUrl: result.url,
+        caption: "📸 Instagram",
+      };
+    }
+
+    errors.push("btch returned no media");
+  } catch (err) {
+    errors.push(err?.message || "btch failed");
   }
 
-  // Attempt 2: oEmbed (image thumbnail only for some posts)
+  // Fallback: existing Tio endpoint
   try {
-    const oembed = await axios.get("https://www.instagram.com/api/v1/oembed", {
-      params: { url },
-      timeout: 15_000,
-      validateStatus: () => true,
-    });
-    if (oembed.data?.thumbnail_url) {
+    const axios = (await import("axios")).default;
+
+    const response = await timeout(
+      axios.get("https://backend1.tioo.eu.org/igdl", {
+        params: { url },
+        timeout: 20_000,
+        validateStatus: () => true,
+      }),
+      25_000,
+      "Instagram API"
+    );
+
+    const data = response.data;
+    const items = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.result)
+      ? data.result
+      : Array.isArray(data?.data)
+      ? data.data
+      : [];
+
+    const media = items.find(
+      (item) =>
+        item &&
+        typeof item.url === "string" &&
+        /^https?:\/\//i.test(item.url)
+    );
+
+    if (media?.url) {
       return {
-        mediaUrl: oembed.data.thumbnail_url,
-        caption: `📸 ${oembed.data.title || "Instagram"} _(thumbnail — full media may need a login)_`,
+        mediaUrl: media.url,
+        caption: "📸 Instagram",
       };
     }
-  } catch {
-    /* ignore */
+
+    throw new Error("API returned no media");
+  } catch (err) {
+    errors.push(err?.message || "fallback failed");
   }
 
   throw new Error(
-    "Could not fetch Instagram media. The scraper may be blocked — try again later or use a public post URL."
+    `Instagram download failed. ${errors.slice(-2).join(" | ")}`
   );
 }
 
-/**
- * Facebook: og:video scrape via public page fetch
- */
 async function fetchFacebook(url) {
-  const axios = (await import("axios")).default;
-  const page = await axios.get(url, {
-    timeout: 25_000,
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      Accept: "text/html",
-    },
-    maxRedirects: 5,
-    validateStatus: (s) => s < 500,
-  });
-  const html = String(page.data || "");
-  const video =
-    html.match(/"playable_url(?:_quality_hd)?"\s*:\s*"([^"]+)"/)?.[1] ||
-    html.match(/<meta property="og:video" content="([^"]+)"/i)?.[1] ||
-    html.match(/<meta property="og:video:url" content="([^"]+)"/i)?.[1];
-  const image = html.match(
-    /<meta property="og:image" content="([^"]+)"/i
-  )?.[1];
-  const title =
-    html.match(/<meta property="og:title" content="([^"]+)"/i)?.[1] ||
-    "Facebook";
+  const fs = await import("fs/promises");
+  const os = await import("os");
+  const path = await import("path");
+  const { spawn } = await import("child_process");
 
-  const media = video || image;
-  if (!media) {
-    throw new Error(
-      "Could not fetch Facebook media (login wall or scraper change)."
+  const tempDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "xmd-facebook-")
+  );
+
+  const ytdlpOutput = path.join(tempDir, "facebook-source.%(ext)s");
+  const finalFile = path.join(tempDir, "facebook.mp4");
+
+  const run = (command, args) =>
+    new Promise((resolve, reject) => {
+      const proc = spawn(command, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stderr = "";
+
+      proc.stderr.on("data", (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on("error", (err) => {
+        reject(new Error(`${command} could not start: ${err.message}`));
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(
+            new Error(
+              stderr.trim().split("\n").slice(-5).join(" ") ||
+                `${command} exited with code ${code}`
+            )
+          );
+        }
+      });
+    });
+
+  try {
+    // Download Facebook video + audio.
+    await run("yt-dlp", [
+      "--no-playlist",
+      "--no-warnings",
+      "--socket-timeout", "20",
+      "--retries", "2",
+      "--fragment-retries", "2",
+      "-f", "bestvideo*+bestaudio/best",
+      "--merge-output-format", "mp4",
+      "-o", ytdlpOutput,
+      url,
+    ]);
+
+    const files = await fs.readdir(tempDir);
+
+    const sourceFile = files.find(
+      (file) =>
+        /^facebook-source\./i.test(file) &&
+        /\.(mp4|mkv|webm|mov)$/i.test(file)
     );
+
+    if (!sourceFile) {
+      throw new Error("Facebook video download completed but source file was not found.");
+    }
+
+    const sourcePath = path.join(tempDir, sourceFile);
+
+    // Convert AV1/other codecs to WhatsApp-compatible H.264 + AAC.
+    await run("ffmpeg", [
+      "-y",
+      "-i", sourcePath,
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "23",
+      "-profile:v", "main",
+      "-level", "4.0",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-movflags", "+faststart",
+      finalFile,
+    ]);
+
+    return {
+      filePath: finalFile,
+      tempDir,
+      caption: "📘 Facebook",
+    };
+  } catch (err) {
+    await fs.rm(tempDir, {
+      recursive: true,
+      force: true,
+    }).catch(() => {});
+
+    throw err;
   }
-  return {
-    mediaUrl: media.replace(/\\u0025/g, "%").replace(/\\/g, ""),
-    caption: `📘 ${title}`,
-  };
 }
 
 async function igHandler(message, conn) {
   const url = pickUrl(message, ["ig", "insta"]);
+
   if (!url || !/instagram\.com/i.test(url)) {
     await replyFail(
       conn,
@@ -216,14 +317,29 @@ async function igHandler(message, conn) {
     );
     return;
   }
-  await withTyping(conn, message.from, async () => {
-    try {
-      const result = await fetchInstagram(url);
-      await sendMediaUrl(conn, message, result.mediaUrl, result.caption);
-    } catch (err) {
-      await replyFail(conn, message, err?.message || "Instagram download failed.");
-    }
-  }, { timeoutMs: 90_000 });
+
+  await withTyping(
+    conn,
+    message.from,
+    async () => {
+      try {
+        const result = await fetchInstagram(url);
+        await sendMediaUrl(
+          conn,
+          message,
+          result.mediaUrl,
+          result.caption
+        );
+      } catch (err) {
+        await replyFail(
+          conn,
+          message,
+          err?.message || "Instagram download failed."
+        );
+      }
+    },
+    { timeoutMs: 90_000 }
+  );
 }
 
 command(
@@ -303,11 +419,12 @@ command(
   {
     pattern: "fb",
     fromMe: false,
-    desc: "Download Facebook media (best-effort)",
+    desc: "Download Facebook media (yt-dlp)",
     type: "media",
   },
   async (message, conn) => {
     const url = pickUrl(message, ["fb"]);
+
     if (!url || !/facebook\.com|fb\.watch/i.test(url)) {
       await replyFail(
         conn,
@@ -316,19 +433,54 @@ command(
       );
       return;
     }
-    await withTyping(conn, message.from, async () => {
-      try {
-        const result = await fetchFacebook(url);
-        await sendMediaUrl(conn, message, result.mediaUrl, result.caption);
-      } catch (err) {
-        await replyFail(
-          conn,
-          message,
-          err?.message ||
-            "Facebook download failed. Public posts work best; scrapers break often."
-        );
-      }
-    }, { timeoutMs: 90_000 });
+
+    await withTyping(
+      conn,
+      message.from,
+      async () => {
+        let result;
+
+        try {
+          result = await fetchFacebook(url);
+
+          const fs = await import("fs/promises");
+          const buffer = await fs.readFile(result.filePath);
+
+          assertVideoSize(buffer.length);
+
+          await conn.sendMessage(
+            message.from,
+            {
+              video: buffer,
+              caption: result.caption,
+              mimetype: "video/mp4",
+            },
+            {
+              quoted: {
+                key: message.key,
+                message: message.message,
+              },
+            }
+          );
+        } catch (err) {
+          await replyFail(
+            conn,
+            message,
+            err?.message ||
+              "Facebook download failed."
+          );
+        } finally {
+          if (result?.tempDir) {
+            const fs = await import("fs/promises");
+            await fs.rm(result.tempDir, {
+              recursive: true,
+              force: true,
+            }).catch(() => {});
+          }
+        }
+      },
+      { timeoutMs: 120_000 }
+    );
   }
 );
 
