@@ -39,6 +39,7 @@ const COMMAND_ORDER = {
     "demote",
     "admins",
     "mention",
+    "acceptall",
   ],
 
   misc: [
@@ -155,6 +156,7 @@ const ICONS = {
   goodbye: "💬",
   groupsettings: "🧑‍🔧",
   groupsetup: "🧑‍🔧",
+  acceptall: "✅",
   kick: "🔇",
   kickall: "🚀",
   mute: "🔇",
@@ -260,6 +262,7 @@ const DESCRIPTIONS = {
   kick: "Remove a member",
   kickall: "Remove all group members",
   groupsetup: "Quick group moderation setup",
+  acceptall: "Approve all pending request",
 
   /*
    * OWNER
@@ -417,22 +420,150 @@ function sortCommands(list, type) {
  * Build final menu text
  */
 async function buildMenuText(showDescriptions = true) {
-  const cmds = await getMenuData();
+  return `*╭━━━〔 🤖 𝑿-𝑨𝑵𝑺𝑨𝑹𝑰 〕━━━╮*
+*┋ ⬡ 🫅 𝑶𝒘𝒏𝒆𝒓   :* 𝑰𝑲𝑹𝑨𝑴-𝑴𝑫
+*┋ ⬡ ⚡ 𝑪𝒐𝒎𝒎𝒂𝒏𝒅𝒔 :* 𝟔𝟕
+*┋ ⬡ 🔧 𝑷𝒓𝒆𝒇𝒊𝒙   :* .
+*┋ ⬡ 🛡️ 𝑴𝒐𝒅𝒆    :* 𝒑𝒖𝒃𝒍𝒊𝒄
+*┋ ⬡ 📚 𝑳𝒂𝒏𝒈𝒖𝒂𝒈𝒆 :* 𝒆𝒏
+*┋ ⬡ 📦 𝑽𝒆𝒓𝒔𝒊𝒐𝒏  :* 𝟒.𝟎.𝟎 
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
 
+*╭━━〔 👥 𝑮𝑹𝑶𝑼𝑷 〕━━╮*
+*┋ ⬡ 👥 .𝑻𝒂𝒈𝒂𝒍𝒍*
+*┋ ⬡ 🔔 .𝑵𝒐𝒕𝒊𝒇𝒚*
+*┋ ⬡ ℹ️ .𝑮𝒓𝒐𝒖𝒑𝒊𝒏𝒇𝒐*
+*┋ ⬡ ⬆️ .𝑷𝒓𝒐𝒎𝒐𝒕𝒆*
+*┋ ⬡ 👤 .𝑫𝒆𝒎𝒐𝒕𝒆*
+*┋ ⬡ 👥 .𝑨𝒅𝒎𝒊𝒏𝒔*
+*┋ ⬡ 📣 .𝑴𝒆𝒏𝒕𝒊𝒐𝒏*
+*┋ ⬡ ✅ .𝑨𝒄𝒄𝒆𝒑𝒕𝒂𝒍𝒍*
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*╭━━〔 🛠️ 𝑴𝑰𝑺𝑪 〕━━╮*
+*┋ ⬡ 🗑️ .𝑨𝒏𝒕𝒊𝒅𝒆𝒍𝒆𝒕𝒆*
+*┋ ⬡ ℹ️ .𝑰𝒏𝒇𝒐*
+*┋ ⬡ 📖 .𝑴𝒆𝒏𝒖*
+*┋ ⬡ 🌐 .𝑳𝒂𝒏𝒈*
+*┋ ⬡ 📡 .𝑺𝒕𝒂𝒕𝒖𝒔*
+*┋ ⬡ 😊 .𝑨𝒖𝒕𝒐𝒓𝒆𝒂𝒄𝒕*
+*┋ ⬡ 🏓 .𝑷𝒊𝒏𝒈*
+*┋ ⬡ 📝 .𝑵𝒐𝒕𝒆*
+*┋ ⬡ ⏰ .𝑹𝒆𝒎𝒊𝒏𝒅*
+*┋ ⬡ 📋 .𝑹𝒆𝒎𝒊𝒏𝒅𝒆𝒓𝒔*
+*┋ ⬡ ⛔ .𝑪𝒂𝒏𝒄𝒆𝒍𝒓𝒆𝒎𝒊𝒏𝒅*
+*┋ ⬡ 📊 .𝑷𝒐𝒍𝒍*
+*┋ ⬡ 👁️ .𝑽𝒗*
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*╭━━〔 🛡️ 𝑨𝑫𝑴𝑰𝑵 〕━━╮*
+*┋ ⬡ ✍️ .𝑫𝒊𝒔𝒂𝒃𝒍𝒆*
+*┋ ⬡ ✍️ .𝑬𝒏𝒂𝒃𝒍𝒆*
+*┋ ⬡ ✍️ .𝑷𝒍𝒖𝒈𝒊𝒏𝒔*
+*┋ ⬡ 🎀 .𝑾𝒆𝒍𝒄𝒐𝒎𝒆*
+*┋ ⬡ 💬 .𝑮𝒐𝒐𝒅𝒃𝒚𝒆*
+*┋ ⬡ 🚫 .𝑨𝒏𝒕𝒊𝒍𝒊𝒏𝒌*
+*┋ ⬡ 🚮 .𝑨𝒏𝒕𝒊𝒔𝒑𝒂𝒎*
+*┋ ⬡ 🧑‍🔧 .𝑮𝒓𝒐𝒖𝒑𝒔𝒆𝒕𝒕𝒊𝒏𝒈𝒔*
+*┋ ⬡ ⚠️ .𝑾𝒂𝒓𝒏*
+*┋ ⬡ 🤝 .𝑼𝒏𝒘𝒂𝒓𝒏*
+*┋ ⬡ ⚠️ .𝑾𝒂𝒓𝒏𝒔*
+*┋ ⬡ 🔇 .𝑴𝒖𝒕𝒆*
+*┋ ⬡ 🔊 .𝑼𝒏𝒎𝒖𝒕𝒆*
+*┋ ⬡ 🔇 .𝑲𝒊𝒄𝒌*
+*┋ ⬡ 🚀 .𝑲𝒊𝒄𝒌𝒂𝒍𝒍*
+*┋ ⬡ 🧑‍🔧 .𝑮𝒓𝒐𝒖𝒑𝒔𝒆𝒕𝒖𝒑*
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*╭━━〔 👑 𝑶𝑾𝑵𝑬𝑹 〕━━╮*
+*┋ ⬡ 👑 .𝑩𝒓𝒐𝒂𝒅𝒄𝒂𝒔𝒕*
+*┋ ⬡ 👑 .𝑪𝒓𝒆𝒂𝒕𝒆𝒍𝒐𝒈*
+*┋ ⬡ 👑 .𝑺𝒆𝒕𝒍𝒐𝒈*
+*┋ ⬡ 👑 .𝑺𝒆𝒕𝒖𝒑*
+*┋ ⬡ 👑 .𝑴𝒐𝒅𝒆*
+*┋ ⬡ 👑 .𝑺𝒖𝒅𝒐*
+*┋ ⬡ 👑 .𝑨𝒖𝒅𝒊𝒕*
+*┋ ⬡ 👑 .𝑭𝒍𝒂𝒈*
+*┋ ⬡ 👑 .𝑷𝒐𝒍𝒊𝒄𝒚*
+*┋ ⬡ 👑 .𝑹𝒐𝒍𝒆*
+*┋ ⬡ 👑 .𝑩𝒂𝒄𝒌𝒖𝒑*
+*┋ ⬡ 👑 .𝑴𝒆𝒕𝒓𝒊𝒄𝒔*
+*┋ ⬡ 👑 .𝑬𝒙𝒊𝒇*
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*╭━━〔 🎬 𝑴𝑬𝑫𝑰𝑨 〕━━╮*
+*┋ ⬡ 🎬 .𝑰𝒈*
+*┋ ⬡ 🎬 .𝑻𝒊𝒌𝒕𝒐𝒌*
+*┋ ⬡ 🎬 .𝑭𝒃*
+*┋ ⬡ 🔖 .𝑺𝒕𝒊𝒄𝒌𝒆𝒓*
+*┋ ⬡ 🫆 .𝑻𝒂𝒌𝒆*
+*┋ ⬡ 🖼️ .𝑻𝒐𝒊𝒎𝒈*
+*┋ ⬡ 🎵 .𝑻𝒐𝒎𝒑𝟑*
+*┋ ⬡ 🖇️ .𝑻𝒐𝒖𝒓𝒖𝒓𝒍*
+*┋ ⬡ 🔖 .𝑸𝒖𝒐𝒕𝒆*
+*┋ ⬡ ✍️ .𝑭𝒂𝒏𝒄𝒚*
+*┋ ⬡ 🎙️ .𝑻𝒕𝒔*
+*┋ ⬡ 🔖 .𝑻𝒕𝒑*
+*┋ ⬡ 🔖 .𝑨𝒕𝒕𝒑*
+*┋ ⬡ 💬 .𝒀𝒕*
+*┋ ⬡ 🎵 .𝒀𝒕𝒎𝒑𝟑*
+*┋ ⬡ 🎬 .𝒀𝒕𝒎𝒑𝟒*
+*┋ ⬡ 🔍 .𝑷𝒍𝒂𝒚*
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*╭━━━〔 🤖 𝑿-𝑨𝑵𝑺𝑨𝑹𝑰 〕━━━╮*
+*┋ ⬡ ⛑️ .𝑯𝒆𝒍𝒑 •* 𝑫𝒆𝒕𝒂𝒊𝒍 𝑴𝒆𝒏𝒖 📝
+*┋ ⬡ ♥️ 𝒗4.0.0 •* 𝑴𝒂𝒅𝒆 𝒘𝒊𝒕𝒉 ♥️
+*╰━━━━┉┉━━━━┉┉━━━━┉┉⊷*
+
+*〔 ⚡ 𝑺𝒎𝒂𝒓𝒕 • 𝑭𝒂𝒔𝒕 • 𝑺𝒊𝒎𝒑𝒍𝒆 ⚡ 〕*`;
+}
+
+async function sendMenu(message, conn, showDescriptions = true) {
+  await reply(
+    conn,
+    message,
+    await buildMenuText(showDescriptions)
+  );
+}
+
+/*
+ * .menu
+ */
+
+
+function toSerifHelpText(text) {
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const digits = "0123456789";
+  const u = [
+    "𝑨","𝑩","𝑪","𝑫","𝑬","𝑭","𝑮","𝑯","𝑰","𝑱","𝑲","𝑳","𝑴",
+    "𝑵","𝑶","𝑷","𝑸","𝑹","𝑺","𝑻","𝑼","𝑽","𝑾","𝑿","𝒀","𝒁"
+  ];
+  const l = [
+    "𝒂","𝒃","𝒄","𝒅","𝒆","𝒇","𝒈","𝒉","𝒊","𝒋","𝒌","𝒍","𝒎",
+    "𝒏","𝒐","𝒑","𝒒","𝒓","𝒔","𝒕","𝒖","𝒗","𝒘","𝒙","𝒚","𝒛"
+  ];
+  const d = ["𝟎","𝟏","𝟐","𝟑","𝟒","𝟓","𝟔","𝟕","𝟖","𝟗"];
+
+  return String(text).replace(/[A-Za-z0-9]/g, ch => {
+    let i = upper.indexOf(ch);
+    if (i >= 0) return u[i];
+    i = lower.indexOf(ch);
+    if (i >= 0) return l[i];
+    i = digits.indexOf(ch);
+    if (i >= 0) return d[i];
+    return ch;
+  });
+}
+
+async function buildHelpMenuText(showDescriptions = true) {
+  const cmds = await getMenuData();
   const byType = new Map();
 
-  /*
-   * Put every real command into a section.
-   */
   for (const cmd of cmds) {
     let type = String(cmd.type || "misc").toLowerCase();
 
-    /*
-     * Only final five sections are displayed.
-     *
-     * Any unknown command type goes to MISC,
-     * so no registered command disappears.
-     */
     if (!SECTION_STYLE[type]) {
       type = "misc";
     }
@@ -444,139 +575,148 @@ async function buildMenuText(showDescriptions = true) {
     byType.get(type).push(cmd);
   }
 
-  /*
-   * Get current bot mode.
-   */
   let mode = "public";
-
   try {
     mode = await getMode();
-  } catch {
-    // Keep public if BotKV is unavailable.
-  }
+  } catch {}
 
-  /*
-   * Owner name.
-   */
-  const owner =
-    process.env.OWNER_NAME || "IKRAM-MD";
+  const owner = process.env.OWNER_NAME || "IKRAM-MD";
 
-  /*
-   * Current language.
-   */
   let lang = "en";
-
   try {
-    const { getLang } =
-      await import("../utils/i18n.js");
-
+    const { getLang } = await import("../utils/i18n.js");
     lang = await getLang();
-  } catch {
-    // Keep en if language system is unavailable.
-  }
+  } catch {}
 
-  /*
-   * HEADER
-   */
+  const fancyTitles = {
+    group: "𝑮𝑹𝑶𝑼𝑷",
+    misc: "𝑴𝑰𝑺𝑪",
+    admin: "𝑨𝑫𝑴𝑰𝑵",
+    owner: "𝑶𝑾𝑵𝑬𝑹",
+    media: "𝑴𝑬𝑫𝑰𝑨",
+  };
+
+  const finalIcons = {
+    tagall: "👥",
+    notify: "🔔",
+    groupinfo: "ℹ️",
+    promote: "⬆️",
+    demote: "👤",
+    admins: "👥",
+    mention: "📣",
+    acceptall: "✅",
+
+    antidelete: "🗑️",
+    info: "ℹ️",
+    menu: "📖",
+    lang: "🌐",
+    status: "📡",
+    autoreact: "😊",
+    ping: "🏓",
+    note: "📝",
+    remind: "⏰",
+    reminders: "📋",
+    cancelremind: "⛔",
+    poll: "📊",
+    vv: "👁️",
+
+    disable: "✍️",
+    enable: "✍️",
+    plugins: "✍️",
+    welcome: "🎀",
+    goodbye: "💬",
+    antilink: "🚫",
+    antispam: "🚮",
+    groupsettings: "🧑‍🔧",
+    warn: "⚠️",
+    unwarn: "🤝",
+    warns: "⚠️",
+    mute: "🔇",
+    unmute: "🔊",
+    kick: "🔇",
+    kickall: "🚀",
+    groupsetup: "🧑‍🔧",
+
+    broadcast: "👑",
+    createlog: "👑",
+    setlog: "👑",
+    setup: "👑",
+    mode: "👑",
+    sudo: "👑",
+    audit: "👑",
+    flag: "👑",
+    policy: "👑",
+    role: "👑",
+    backup: "👑",
+    metrics: "👑",
+    exif: "👑",
+
+    ig: "🎬",
+    tiktok: "🎬",
+    fb: "🎬",
+    tomp3: "🎵",
+    fancy: "✍️",
+    toururl: "🖇️",
+    sticker: "🔖",
+    quote: "🔖",
+    ttp: "🔖",
+    attp: "🔖",
+    take: "🫆",
+    toimg: "🖼️",
+    tts: "🎙️",
+    yt: "💬",
+    ytmp3: "🎵",
+    ytmp4: "🎬",
+    play: "🔍",
+  };
+
   let text = "";
 
-  text += `*╭━━━〔 🤖 𝗫-𝗔𝗡𝗦𝗔𝗥𝗜 〕━━━╮*\n`;
-  text += `*┋ ⬡ 👤 Owner    :* ${owner}\n`;
-  text += `*┋ ⬡ ⚡ Commands :* ${cmds.length}\n`;
-  text += `*┋ ⬡ 🔧 Prefix   :* ${BOT_INFO.PREFIX}\n`;
-  text += `*┋ ⬡ 🛡️ Mode     :* ${mode}\n`;
-  text += `*┋ ⬡ 📚 Language :* ${lang}\n`;
-  text += `*┋ ⬡ 📦 Version  :* ${BOT_INFO.VERSION}\n`;
-  text += `*╰━━━━━━━━━━━━━━━━━━━━⊷*\n\n`;
+  text += `*╭━━━〔 🤖 𝑿-𝑨𝑵𝑺𝑨𝑹𝑰 〕━━━╮*\n`;
+  text += `*┋ ⬡ 🫅 𝑶𝒘𝒏𝒆𝒓   :* ${owner}\n`;
+  text += `*┋ ⬡ ⚡ 𝑪𝒐𝒎𝒎𝒂𝒏𝒅𝒔 :* ${cmds.length}\n`;
+  text += `*┋ ⬡ 🔧 𝑷𝒓𝒆𝒇𝒊𝒙   :* ${BOT_INFO.PREFIX}\n`;
+  text += `*┋ ⬡ 🛡️ 𝑴𝒐𝒅𝒆    :* ${mode}\n`;
+  text += `*┋ ⬡ 📚 𝑳𝒂𝒏𝒈𝒖𝒂𝒈𝒆 :* ${lang}\n`;
+  text += `*┋ ⬡ 📦 𝑽𝒆𝒓𝒔𝒊𝒐𝒏  :* ${BOT_INFO.VERSION} *╰━━━━━━━━━━━━━━━━━⊷*\n\n`;
 
-  /*
-   * FINAL SECTION ORDER
-   */
-  const typeOrder = [
-    "group",
-    "misc",
-    "admin",
-    "owner",
-    "media",
-  ];
+  const typeOrder = ["group", "misc", "admin", "owner", "media"];
 
   for (const type of typeOrder) {
     const list = byType.get(type);
+    if (!list || !list.length) continue;
 
-    if (!list || !list.length) {
-      continue;
-    }
+    const [emoji] = SECTION_STYLE[type];
+    const sorted = sortCommands(list, type);
 
-    const [emoji, title] =
-      SECTION_STYLE[type];
-
-    const sorted = sortCommands(
-      list,
-      type
-    );
-
-    text += `*╭━━〔 ${emoji} ${title} 〕━━╮*\n`;
+    text += `*╭━━〔 ${emoji} ${fancyTitles[type]} 〕━━╮*\n`;
 
     for (const cmd of sorted) {
-      const name = String(
-        cmd.patternName || ""
-      ).trim();
-
+      const name = String(cmd.patternName || "").trim();
       if (!name) continue;
 
-      const displayName = name;
+      const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+      const usage = `${BOT_INFO.PREFIX}${displayName}`;
+      const icon = finalIcons[name] || commandIcon(name);
+      const desc = commandDescription(cmd);
 
-      const usage =
-        `${BOT_INFO.PREFIX}${displayName}`;
-
-      const icon =
-        commandIcon(name);
-
-      const desc =
-        commandDescription(cmd);
-
-      if (showDescriptions && desc) {
-        text +=
-          `*┋ ⬡ ${icon} ${usage}* — ${desc}\n`;
-      } else {
-        text +=
-          `*┋ ⬡ ${icon} ${usage}*\n`;
-      }
+      text += desc
+        ? `*┋ ⬡ ${icon} ${toSerifHelpText(usage)}* — ${toSerifHelpText(desc)}\n`
+        : `*┋ ⬡ ${icon} ${toSerifHelpText(usage)}*\n`;
     }
 
-    text +=
-      `*╰━━━━━━━━━━━━━━━━━━⊷*\n\n`;
+    text += `*╰━━━━━━━━━━━━━━━━━⊷*\n\n`;
   }
 
-  /*
-   * FOOTER
-   */
-  text +=
-    `*╭━━━〔 🤖 𝗫-𝗔𝗡𝗦𝗔𝗥𝗜 〕━━━╮*\n`;
-    text += `*┋ ⬡ ⛑️ .Help* — Show detailed command menu\n`;
+  text += `*╭━━━〔 🤖 𝑿-𝑨𝑵𝑺𝑨𝑹𝑰 〕━━━╮*\n`;
+  text += `*┋ ⬡ ⛑️ .𝑯𝒆𝒍𝒑 •* 𝑫𝒆𝒕𝒂𝒊𝒍 𝑴𝒆𝒏𝒖 📝\n`;
+  text += `*┋ ⬡ ♥️ 𝒗${BOT_INFO.VERSION} •* 𝑴𝒂𝒅𝒆 𝒘𝒊𝒕𝒉 ♥️ *╰━━━━━━━━━━━━━━━━━⊷*\n\n`;
+  text += `*〔⚡ 𝑺𝒎𝒂𝒓𝒕 • 𝑭𝒂𝒔𝒕 • 𝑺𝒊𝒎𝒑𝒍𝒆 ⚡〕*`;
 
-  text +=
-    `*┋ ⬡ ♥️ v${BOT_INFO.VERSION} •* Made with ♥️\n`;
-
-  text +=
-    `*╰━━━━━━━━━━━━━━━━━━━━⊷*\n`;
-
-  text +=
-    `\n*[Reply with a command to use it]*`;
-
-  return text;
+  return toSerifHelpText(text);
 }
 
-/*
- * Send menu
- */
-async function sendMenu(message, conn, showDescriptions = true) {
-  await reply(
-    conn,
-    message,
-    await buildMenuText(showDescriptions)
-  );
-}
+
 
 /*
  * .menu
@@ -623,11 +763,8 @@ command(
      * .help
      */
     if (!args) {
-      await sendMenu(
-        message,
-        conn,
-        true
-      );
+      const helpText = await buildHelpMenuText(true);
+      await reply(conn, message, helpText);
       return;
     }
 
@@ -703,91 +840,6 @@ command(
         (hit.fromMe
           ? " · owner"
           : "")
-    );
-  }
-);
-
-command(
-  {
-    pattern: "h",
-    fromMe: false,
-    desc: "Alias for help",
-    type: "misc",
-    dontAddCommandList: true,
-  },
-  async (message, conn) => {
-    const body = message.body || "";
-
-    const args = body
-      .replace(
-        new RegExp(
-          `^\\${BOT_INFO.PREFIX}\\s*h\\s*`,
-          "i"
-        ),
-        ""
-      )
-      .trim()
-      .toLowerCase();
-
-    if (!args) {
-      await sendMenu(
-        message,
-        conn,
-        true
-      );
-      return;
-    }
-
-    const cmds = await getMenuData();
-
-    const hit =
-      cmds.find(
-        (c) =>
-          String(c.patternName)
-            .toLowerCase() === args
-      ) ||
-      cmds.find(
-        (c) =>
-          String(c.patternName)
-            .toLowerCase()
-            .startsWith(args)
-      );
-
-    if (!hit) {
-      const suggestions = cmds
-        .filter(
-          (c) =>
-            String(c.patternName)
-              .toLowerCase()
-              .includes(args)
-        )
-        .slice(0, 5)
-        .map(
-          (c) =>
-            `\`${BOT_INFO.PREFIX}${c.patternName}\``
-        );
-
-      await reply(
-        conn,
-        message,
-        suggestions.length
-          ? `Unknown. Did you mean: ${suggestions.join(", ")}?`
-          : `Unknown command. Try \`${BOT_INFO.PREFIX}menu\`.`
-      );
-      return;
-    }
-
-    const desc = commandDescription(hit);
-
-    await reply(
-      conn,
-      message,
-      `*${BOT_INFO.PREFIX}${hit.patternName}*\n` +
-        `${desc || "_No description_"}\n` +
-        `Type: ${hit.type || "misc"}` +
-        (hit.groupOnly ? " · group" : "") +
-        (hit.adminOnly ? " · admin" : "") +
-        (hit.fromMe ? " · owner" : "")
     );
   }
 );

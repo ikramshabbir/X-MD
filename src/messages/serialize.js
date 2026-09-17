@@ -1,4 +1,5 @@
 import { normalizeMessageContent } from "baileys";
+import { msgCache, makeMessageCacheKey } from "../utils/cache.js";
 
 const MIME_TYPE_MAP = {
   conversation: "text",
@@ -264,7 +265,7 @@ function getSenderInfo(key, isGroup, conn) {
   };
 }
 
-async function serialize(conn, message) {
+async function serialize(conn, message, sessionId = "default") {
   if (!conn) {
     console.log(
       "⚠️ Serialize: connection missing"
@@ -374,12 +375,88 @@ async function serialize(conn, message) {
   const contextInfo =
     messageContent?.contextInfo ||
     messageContent?.contextInfoV2 ||
+    unwrapped?.contextInfo ||
+    unwrapped?.contextInfoV2 ||
+    originalContent?.contextInfo ||
+    originalContent?.contextInfoV2 ||
+    originalContent?.extendedTextMessage?.contextInfo ||
+    originalContent?.extendedTextMessage?.contextInfoV2 ||
     null;
 
-  const quoted =
-    extractQuotedMessage(
-      contextInfo
+  if (messageTypeKey === "extendedTextMessage") {
+    console.log("=== STICKER QUOTE RAW DEBUG ===");
+    console.log("originalContent keys:", Object.keys(originalContent || {}));
+    console.log(
+      "extendedTextMessage keys:",
+      Object.keys(originalContent?.extendedTextMessage || {})
     );
+    console.log(
+      "messageContent keys:",
+      Object.keys(messageContent || {})
+    );
+    console.log(
+      "contextInfo:",
+      JSON.stringify(
+        messageContent?.contextInfo ||
+        originalContent?.extendedTextMessage?.contextInfo ||
+        null,
+        null,
+        2
+      )
+    );
+    console.log("=== END STICKER QUOTE RAW DEBUG ===");
+  }
+
+  let quoted = extractQuotedMessage(contextInfo);
+
+  if (!quoted && contextInfo?.stanzaId && from) {
+    const cacheKey = makeMessageCacheKey(
+      sessionId,
+      from,
+      contextInfo.stanzaId
+    );
+
+    const cachedMessage = cacheKey
+      ? msgCache.get(cacheKey)
+      : null;
+
+    if (cachedMessage?.message) {
+      const cachedRaw = unwrapMessage(cachedMessage.message);
+
+      if (cachedRaw) {
+        const {
+          key: cachedTypeKey,
+          mime: cachedMime,
+        } = getMessageMimeType(cachedRaw);
+
+        if (
+          cachedTypeKey !== "unknown" &&
+          cachedMime !== "unknown"
+        ) {
+          const cachedContent = cachedRaw[cachedTypeKey];
+
+          quoted = {
+            type: cachedMime,
+            messageTypeKey: cachedTypeKey,
+            text: getBody(cachedContent, cachedTypeKey),
+            caption: cachedContent?.caption || "",
+            mimetype: cachedContent?.mimetype || "",
+            raw: cachedRaw,
+            originalMessage: cachedMessage.message,
+            isViewOnce: isViewOnceMessage(cachedMessage.message),
+            stanzaId: contextInfo.stanzaId,
+            participant: contextInfo.participant || null,
+            participantAlt: contextInfo.participantAlt || null,
+          };
+
+          console.log(
+            "✅ QUOTED MEDIA RESOLVED FROM CACHE:",
+            cachedTypeKey
+          );
+        }
+      }
+    }
+  }
 
   const body =
     getBody(

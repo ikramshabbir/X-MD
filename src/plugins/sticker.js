@@ -84,28 +84,35 @@ async function imageToWebp(buffer) {
 async function videoToWebp(buffer) {
   const input = await writeTempFile(buffer, ".mp4");
   const output = createTempPath(".webp");
+
   try {
     await ffmpegConvert(input, output, (cmd) =>
       cmd
-        .inputOptions(["-t", String(MEDIA.MAX_STICKER_VIDEO_DURATION)])
-        .complexFilter([
-          "scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:-1:-1:color=black@0",
+        .inputOptions([
+          "-t",
+          String(MEDIA.MAX_STICKER_VIDEO_DURATION),
+        ])
+        .videoFilters([
+          "scale=512:512:force_original_aspect_ratio=decrease",
+          "pad=512:512:-1:-1:color=black@0",
+          "fps=15",
         ])
         .outputOptions([
-          "-vcodec",
+          "-c:v",
           "libwebp",
+          "-q:v",
+          "55",
+          "-compression_level",
+          "4",
           "-loop",
           "0",
-          "-ss",
-          "00:00:00",
-          "-preset",
-          "default",
           "-an",
           "-vsync",
           "0",
         ])
         .format("webp")
     );
+
     const { readFile } = await import("fs/promises");
     return await readFile(output);
   } finally {
@@ -153,6 +160,18 @@ async function sendSticker(conn, message, webp, pack, author) {
 const stickerHandler = async (message, conn) => {
     await withTyping(conn, message.from, async () => {
       try {
+        console.log("[STICKER DEBUG]", {
+          messageType: message.type,
+          messageTypeKey: message.messageTypeKey,
+          quotedType: message.quoted?.type,
+          quotedMessageTypeKey: message.quoted?.messageTypeKey,
+          quotedMime: message.quoted?.mimetype,
+          quotedHasRaw: !!message.quoted?.raw,
+          quotedRawKeys: message.quoted?.raw
+            ? Object.keys(message.quoted.raw)
+            : [],
+        });
+
         const media = await downloadQuotedOrSelf(conn, message);
         if (!media) {
           await replyFail(
@@ -205,6 +224,18 @@ async function takeHandler(message, conn) {
         await replyFail(conn, message, "Reply to a sticker.");
         return;
       }
+      console.log("[STICKER DEBUG]", {
+        messageType: message.type,
+        messageTypeKey: message.messageTypeKey,
+        quotedType: message.quoted?.type,
+        quotedMessageTypeKey: message.quoted?.messageTypeKey,
+        quotedMime: message.quoted?.mimetype,
+        quotedHasRaw: !!message.quoted?.raw,
+        quotedRawKeys: message.quoted?.raw
+          ? Object.keys(message.quoted.raw)
+          : [],
+      });
+
       const media = await downloadQuotedOrSelf(conn, message);
       if (!media) {
         await replyFail(conn, message, "Could not download sticker.");
@@ -275,15 +306,28 @@ command(
           return;
         }
         const media = await downloadQuotedOrSelf(conn, message);
-        if (!media) {
+        if (!media?.buffer) {
           await replyFail(conn, message, "Could not download sticker.");
           return;
         }
+
         const sharp = (await import("sharp")).default;
-        const png = await sharp(media.buffer).png().toBuffer();
+
+        // Decode the actual WebP sticker and encode a real PNG image.
+        const png = await sharp(media.buffer, {
+          animated: true,
+          pages: 1,
+        })
+          .png()
+          .toBuffer();
         await conn.sendMessage(
           message.from,
-          { image: png, caption: "🖼️" },
+          {
+            document: png,
+            mimetype: "image/png",
+            fileName: "sticker.png",
+            caption: "🖼️",
+          },
           { quoted: { key: message.key, message: message.message } }
         );
       } catch (err) {

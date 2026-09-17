@@ -480,7 +480,7 @@ command(
         if (line) lines.push(line);
 
         const textFilters = lines.slice(0, 8).map((l, i) =>
-          `drawtext=text='${esc(l)}':fontcolor=white:fontsize=44:borderw=2:bordercolor=white:x=(w-text_w)/2:y=${145 + i * 43}`
+          `drawtext=fontfile=/system/fonts/NotoSerif-Regular.ttf:text='${esc(l)}':fontcolor=white:fontsize=58:borderw=2:bordercolor=white:x=(w-text_w)/2:y=${125 + i * 55}`
         ).join(",");
 
         const safeName = esc(String(name).slice(0, 24));
@@ -493,7 +493,7 @@ command(
           "-f", "lavfi",
           "-i", "color=c=black:s=512x512:r=1",
           "-vf",
-          `${textFilters},drawtext=text='— ${safeName}':fontcolor=#d9d9d9:fontsize=22:borderw=1:bordercolor=#d9d9d9:x=w-text_w-28:y=h-text_h-24`,
+          `${textFilters},drawtext=text='— ${safeName}':fontcolor=#d9d9d9:fontsize=28:borderw=1:bordercolor=#d9d9d9:x=w-text_w-28:y=h-text_h-24`,
           "-frames:v", "1",
           "-c:v", "libwebp",
           "-q:v", "75",
@@ -559,12 +559,15 @@ command(
           await replyFail(conn, message, `Usage: \`${BOT_INFO.PREFIX}tts <text>\``);
           return;
         }
-        // lang:text or just text
+        // Urdu script -> Pakistani Urdu TTS; explicit lang:text remains supported
         let lang = "en";
         const m = text.match(/^([a-z]{2})[:|]\s*(.+)$/i);
+
         if (m) {
           lang = m[1].toLowerCase();
           text = m[2];
+        } else if (/[,،؟ٰٔٓۓےںھہوعیپٹڈڑژچگکفثصضطظذخحجشسزرسداب] /u.test(text) || /[\u0600-\u06FF]/u.test(text)) {
+          lang = "ur";
         }
         text = text.slice(0, 200);
         const { getAudioUrl } = await import("google-tts-api");

@@ -768,7 +768,8 @@ async function createConnection(
                 const message =
                   await serialize(
                     conn,
-                    rawMessage
+                    rawMessage,
+                    sessionId
                   );
 
                 if (!message) {

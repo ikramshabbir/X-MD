@@ -189,6 +189,62 @@ command(
   }
 );
 
+// ==================== ACCEPT ALL ====================
+command(
+  {
+    pattern: "acceptall",
+    fromMe: true,
+    desc: "Approve all pending requests",
+    type: "group",
+    groupOnly: true,
+    adminOnly: true,
+    botAdminRequired: true,
+  },
+  async (message, conn) => {
+    try {
+      await withTyping(conn, message.from, async () => {
+        const response = await conn.groupRequestParticipantsList(message.from);
+        const requests = Array.isArray(response) ? response : [];
+
+        if (requests.length === 0) {
+          return await sendError(
+            conn,
+            message.from,
+            "No pending join requests found."
+          );
+        }
+
+        const participants = requests
+          .map((request) => request?.jid || request?.id || request?.participant)
+          .filter(Boolean);
+
+        if (participants.length === 0) {
+          return await sendError(
+            conn,
+            message.from,
+            "No valid pending requests found."
+          );
+        }
+
+        await conn.groupRequestParticipantsUpdate(
+          message.from,
+          participants,
+          "approve"
+        );
+
+        await replyOk(
+          conn,
+          message,
+          `Approved ${participants.length} pending request${participants.length === 1 ? "" : "s"}!`
+        );
+      });
+    } catch (error) {
+      console.error("Error in acceptall command:", error);
+      await replyFail(conn, message, "Failed to approve pending requests.");
+    }
+  }
+);
+
 // ==================== ADMINS ====================
 command(
   {
